@@ -1,4 +1,4 @@
-name: Build and Push Container
+name: Go CI/CD Pipeline
 
 on:
   push:
@@ -11,24 +11,37 @@ env:
   IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  build:
+  test:
+    name: Test
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
     steps:
-      - name: Checkout repository
+      - name: Checkout code
         uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v4
         with:
-          go-version: '1.23'
+          go-version: '1.21'
           cache: true
 
-      - name: Run tests
-        run: go test -v ./...
+      - name: Run unit tests
+        run: go test -v -race -cover ./...
+      
+      - name: Run linter
+        uses: golangci/golangci-lint-action@v3
+        with:
+          version: latest
+
+  build:
+    name: Build and Push
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -37,7 +50,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract metadata for Docker
+      - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -47,7 +60,7 @@ jobs:
             type=ref,event=branch
             type=ref,event=tag
 
-      - name: Build and push Docker image
+      - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
