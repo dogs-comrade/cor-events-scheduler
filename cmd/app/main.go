@@ -1,9 +1,9 @@
+// cmd/app/main.go
 package main
 
 import (
 	"context"
 	"fmt"
-	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,33 +11,55 @@ import (
 	"time"
 
 	"cor-events-scheduler/internal/config"
+	"cor-events-scheduler/internal/domain/repositories"
 	"cor-events-scheduler/internal/handlers"
 	"cor-events-scheduler/internal/handlers/middleware"
 	"cor-events-scheduler/internal/infrastructure/db"
+	"cor-events-scheduler/internal/metrics"
 	"cor-events-scheduler/internal/services"
+	"cor-events-scheduler/pkg/utils"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap"
 )
 
 func main() {
+	// Initialize logger
+	logger := utils.InitLogger()
+	defer logger.Sync()
+
+	// Initialize metrics
+	metrics.InitMetrics()
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
-		log.Fatalf("Failed to load config: %v", err)
+		logger.Fatal("Failed to load config", zap.Error(err))
 	}
 
 	// Initialize database
 	database, err := db.NewDatabase(cfg)
 	if err != nil {
-		log.Fatalf("Failed to initialize database: %v", err)
+		logger.Fatal("Failed to initialize database", zap.Error(err))
 	}
 
+	// Initialize repositories
+	scheduleRepo := repositories.NewScheduleRepository(database)
+	eventRepo := repositories.NewEventRepository(database)
+
 	// Initialize services
-	schedulerService := services.NewSchedulerService(database)
+	analysisService := services.NewAnalysisService(cfg)
+	schedulerService := services.NewSchedulerService(
+		scheduleRepo,
+		eventRepo,
+		analysisService,
+		logger,
+		database,
+	)
 
 	// Initialize router
-	router := setupRouter(schedulerService)
+	router := setupRouter(schedulerService, logger)
 
 	// Set Gin mode
 	if os.Getenv("GIN_MODE") == "release" {
@@ -57,9 +79,9 @@ func main() {
 
 	// Start server in goroutine
 	go func() {
-		log.Printf("Starting server on %s", serverAddr)
+		logger.Info("Starting server", zap.String("address", serverAddr))
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start server: %v", err)
+			logger.Fatal("Failed to start server", zap.Error(err))
 		}
 	}()
 
@@ -68,44 +90,54 @@ func main() {
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Shutting down server...")
+	logger.Info("Shutting down server...")
 
 	// Shutdown gracefully
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := srv.Shutdown(ctx); err != nil {
-		log.Fatalf("Server forced to shutdown: %v", err)
+		logger.Fatal("Server forced to shutdown", zap.Error(err))
 	}
 
-	log.Println("Server exiting")
+	logger.Info("Server exited properly")
 }
 
-func setupRouter(schedulerService *services.SchedulerService) *gin.Engine {
-	router := gin.Default()
+func setupRouter(schedulerService *services.SchedulerService, logger *zap.Logger) *gin.Engine {
+	router := gin.New()
 
-	// Add middlewares
-	router.Use(middleware.LoggingMiddleware())
+	router.Use(gin.Recovery())
+	router.Use(middleware.NewLoggingMiddleware(logger))
 	router.Use(middleware.CORSMiddleware())
+	router.Use(middleware.NewMetricsMiddleware())
 
-	// Prometheus metrics endpoint
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// Health check
 	router.GET("/health", handlers.HealthCheck)
 
-	// API v1
 	v1 := router.Group("/api/v1")
 	{
 		schedules := v1.Group("/schedules")
 		{
-			handler := handlers.NewSchedulerHandler(schedulerService)
-			schedules.GET("/", handler.List)
-			schedules.POST("/", handler.Create)
-			schedules.PUT("/:id", handler.Update)
-			schedules.GET("/:id", handler.Get)
-			schedules.DELETE("/:id", handler.Delete)
-			schedules.POST("/arrange", handler.ArrangeSchedule)
+			handler := handlers.NewSchedulerHandler(schedulerService, logger)
+			schedules.POST("/", handler.CreateSchedule)
+			schedules.GET("/", handler.ListSchedules)
+			schedules.GET("/:id", handler.GetSchedule)
+			schedules.PUT("/:id", handler.UpdateSchedule)
+			schedules.DELETE("/:id", handler.DeleteSchedule)
+			schedules.POST("/analyze", handler.AnalyzeSchedule)
+			schedules.POST("/optimize", handler.OptimizeSchedule)
 		}
+
+		// События пока закомментируем, так как нет имплементации
+		/*
+		   events := v1.Group("/events")
+		   {
+		       handler := handlers.NewEventHandler(schedulerService, logger)
+		       events.POST("/:id/schedules", handler.CreateEventSchedule)
+		       events.GET("/:id/schedules", handler.GetEventSchedules)
+		       events.GET("/:id/analysis", handler.GetEventAnalysis)
+		   }
+		*/
 	}
 
 	return router

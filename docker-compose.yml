@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    ports:
+      - "8282:8282"
+    environment:
+      - APP_DB_HOST=postgres
+      - APP_DB_PORT=5432
+      - APP_DB_USER=postgres
+      - APP_DB_PASSWORD=your_secure_password
+      - APP_DB_NAME=events_scheduler
+      - GIN_MODE=release
+    depends_on:
+      - postgres
+      - prometheus
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=your_secure_password
+      - POSTGRES_DB=events_scheduler
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+
+volumes:
+  postgres_data:
+  prometheus_data:

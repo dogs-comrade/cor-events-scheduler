@@ -3,13 +3,11 @@ package middleware
 import (
 	"time"
 
-	"cor-events-scheduler/pkg/utils"
-
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-func LoggingMiddleware() gin.HandlerFunc {
+func NewLoggingMiddleware(logger *zap.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
@@ -20,7 +18,7 @@ func LoggingMiddleware() gin.HandlerFunc {
 		latency := time.Since(start)
 		status := c.Writer.Status()
 
-		utils.GetLogger().Info("request completed",
+		logger.Info("request completed",
 			zap.Int("status", status),
 			zap.String("method", c.Request.Method),
 			zap.String("path", path),
