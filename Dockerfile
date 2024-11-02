@@ -1,7 +1,10 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
+FROM golang:latest AS builder
 
 WORKDIR /app
+
+# Install build dependencies
+RUN apk add --no-cache git build-base
 
 # Copy go mod and sum files
 COPY go.mod go.sum ./
@@ -16,7 +19,7 @@ COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o main cmd/app/main.go
 
 # Final stage
-FROM alpine:3.18
+FROM alpine:latest
 
 WORKDIR /app
 
