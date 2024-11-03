@@ -142,34 +142,63 @@ jobs:
        run: |
          kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
          
-     - name: Deploy manifests
+     - name: Deploy base manifests
        run: |
-         # Используем SHA тег для деплоя
-         IMAGE_WITH_SHA="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
-         
-         # Заменяем переменные в deployment.yaml
-         sed -i "s|${REGISTRY}/${IMAGE_NAME}:.*|${IMAGE_WITH_SHA}|g" k8s/base/deployment.yaml
-         
-         # Применяем все манифесты
-         kubectl apply -f k8s/base/deployment.yaml -n ${{ env.NAMESPACE }}
-         kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
-         
-         # Проверяем, установлен ли ServiceMonitor CRD перед применением monitoring.yaml
-         if kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1; then
-            kubectl apply -f k8s/base/monitoring.yaml -n ${{ env.NAMESPACE }}
-          else
-            echo "ServiceMonitor CRD not found, skipping monitoring configuration"
-          fi
-          
-          kubectl rollout status deployment/events-scheduler -n ${{ env.NAMESPACE }} --timeout=600s || {
-            echo "Deployment failed. Checking pod status..."
-            kubectl describe pods -n ${{ env.NAMESPACE }} -l app=events-scheduler
-            kubectl logs -n ${{ env.NAMESPACE }} -l app=events-scheduler --tail=100
-            exit 1
-          }
-         
+           # Создаем временный файл для измененного deployment
+           cp k8s/base/deployment.yaml k8s/base/deployment-temp.yaml
+           
+           # Заменяем переменные в временном файле
+           sed -i "s|\${DOCKER_REGISTRY}|${{ env.DOCKER_REGISTRY }}|g" k8s/base/deployment-temp.yaml
+           sed -i "s|\${TAG}|${{ github.sha }}|g" k8s/base/deployment-temp.yaml
+           
+           # Проверяем результат замены
+           echo "Checking deployment file after variable substitution:"
+           cat k8s/base/deployment-temp.yaml
+           
+           # Применяем ConfigMap
+           kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
+           
+           # Применяем Service
+           kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
+   
+           # Применяем измененный Deployment
+           kubectl apply -f k8s/base/deployment-temp.yaml -n ${{ env.NAMESPACE }}
+   
+           # Удаляем временный файл
+           rm k8s/base/deployment-temp.yaml
+   
+     - name: Wait for deployment
+       run: |
+           echo "Waiting for pods to be ready..."
+           kubectl wait --for=condition=ready pod -l app=events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
+           
+           echo "Checking deployment rollout status..."
+           kubectl rollout status deployment/events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
+   
+     - name: Debug deployment if failed
+       if: failure()
+       run: |
+           echo "Deployment failed. Collecting debug information..."
+           
+           echo "Current image in deployment:"
+           kubectl get deployment events-scheduler -n ${{ env.NAMESPACE }} -o=jsonpath='{.spec.template.spec.containers[0].image}'
+           
+           echo "Pod status:"
+           kubectl get pods -n ${{ env.NAMESPACE }} -l app=events-scheduler -o wide
+           
+           echo "Pod descriptions:"
+           kubectl describe pods -n ${{ env.NAMESPACE }} -l app=events-scheduler
+           
+           echo "Recent pod events:"
+           kubectl get events -n ${{ env.NAMESPACE }} --sort-by='.metadata.creationTimestamp' | tail -n 20
+   
      - name: Verify deployment
        run: |
-         echo "Checking deployment status..."
-         kubectl get pods,svc,configmap,secret,ingress -n ${{ env.NAMESPACE }}
-         kubectl get pods -n ${{ env.NAMESPACE }} -l app=events-scheduler
+           echo "Current deployment status:"
+           kubectl get deployment events-scheduler -n ${{ env.NAMESPACE }} -o wide
+           
+           echo "Pod status:"
+           kubectl get pods -n ${{ env.NAMESPACE }} -l app=events-scheduler -o wide
+           
+           echo "Service status:"
+           kubectl get svc -n ${{ env.NAMESPACE }}
