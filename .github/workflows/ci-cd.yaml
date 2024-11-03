@@ -1,109 +1,119 @@
 name: CI/CD Pipeline
 on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
+ push:
+   branches: [ main ]
+ pull_request:
+   branches: [ main ]
+
 env:
-  DOCKER_REGISTRY: ghcr.io/${{ github.repository_owner }}
-  KUBECONFIG_FILE: ${{ secrets.KUBECONFIG }}
-  NAMESPACE: events-scheduler
+ REGISTRY: ghcr.io
+ IMAGE_NAME: ${{ github.repository }}
+ NAMESPACE: events-scheduler
 
 permissions:
-  contents: read
-  packages: write
+ contents: read
+ packages: write
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Go
-      uses: actions/setup-go@v4
-      with:
-        go-version: '1.21'
-    - name: Run tests
-      run: go test -v ./...
+ test:
+   runs-on: ubuntu-latest
+   steps:
+     - uses: actions/checkout@v4
+     - name: Set up Go
+       uses: actions/setup-go@v4
+       with:
+         go-version: '1.21'
+     - name: Run tests
+       run: go test -v ./...
 
-  build-and-push:
-    needs: test
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v2
-    - name: Login to GitHub Container Registry
-      uses: docker/login-action@v2
-      with:
-        registry: ghcr.io
-        username: ${{ github.repository_owner }}
-        password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Build and push Docker image
-      uses: docker/build-push-action@v4
-      with:
-        context: .
-        push: true
-        tags: |
-          ${{ env.DOCKER_REGISTRY }}/events-scheduler:${{ github.sha }}
-          ${{ env.DOCKER_REGISTRY }}/events-scheduler:latest
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+ build:
+   needs: test
+   runs-on: ubuntu-latest
+   steps:
+     - name: Checkout repository
+       uses: actions/checkout@v4
+       
+     - name: Log in to the Container registry
+       uses: docker/login-action@v3
+       with:
+         registry: ${{ env.REGISTRY }}
+         username: ${{ github.actor }}
+         password: ${{ secrets.GITHUB_TOKEN }}
+         
+     - name: Extract metadata
+       id: meta
+       uses: docker/metadata-action@v5
+       with:
+         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+         tags: |
+           type=sha
+           type=ref,event=branch
+           type=semver,pattern={{version}}
+           
+     - name: Build and push Docker image
+       uses: docker/build-push-action@v5
+       with:
+         context: .
+         push: true
+         tags: ${{ steps.meta.outputs.tags }}
+         labels: ${{ steps.meta.outputs.labels }}
 
-  deploy:
-    needs: build-and-push
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    
-    - name: Set up kubeconfig
-      run: |
-        mkdir -p $HOME/.kube
-        echo "${{ secrets.KUBECONFIG }}" > $HOME/.kube/config
-        chmod 600 $HOME/.kube/config
-
-    - name: Install kubectl
-      uses: azure/setup-kubectl@v3
-      with:
-        version: 'latest'
-
-    - name: Create namespace if not exists
-      run: |
-        kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-
-    - name: Update Kubernetes secrets
-      run: |
-        cat <<EOF | kubectl apply -f -
-        apiVersion: v1
-        kind: Secret
-        metadata:
-          name: events-scheduler-secrets
-          namespace: ${{ env.NAMESPACE }}
-        type: Opaque
-        data:
-          db_user: ${{ secrets.DB_USER_BASE64 }}
-          db_password: ${{ secrets.DB_PASSWORD_BASE64 }}
-        EOF
-
-    - name: Deploy ConfigMap
-      run: |
-        kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
-
-    - name: Deploy manifests
-      run: |
-        # Заменяем переменные в deployment.yaml
-        sed -i "s|\${DOCKER_REGISTRY}|$DOCKER_REGISTRY|g" k8s/base/deployment.yaml
-        sed -i "s|\${TAG}|${{ github.sha }}|g" k8s/base/deployment.yaml
-
-        # Применяем все манифесты
-        kubectl apply -f k8s/base/deployment.yaml -n ${{ env.NAMESPACE }}
-        kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
-        kubectl apply -f k8s/base/monitoring.yaml -n ${{ env.NAMESPACE }} || true
-        
-        # Ждем успешного деплоя
-        kubectl rollout status deployment/events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
-
-    - name: Verify deployment
-      run: |
-        echo "Checking deployment status..."
-        kubectl get pods,svc,configmap,secret,ingress -n ${{ env.NAMESPACE }}
-        kubectl get pods -n ${{ env.NAMESPACE }} -l app=events-scheduler
+ deploy:
+   needs: build
+   runs-on: ubuntu-latest
+   steps:
+     - uses: actions/checkout@v4
+     
+     - name: Set up kubeconfig
+       run: |
+         mkdir -p $HOME/.kube
+         echo "${{ secrets.KUBECONFIG }}" > $HOME/.kube/config
+         chmod 600 $HOME/.kube/config
+         
+     - name: Install kubectl
+       uses: azure/setup-kubectl@v3
+       with:
+         version: 'latest'
+         
+     - name: Create namespace if not exists
+       run: |
+         kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+         
+     - name: Update Kubernetes secrets
+       run: |
+         cat <<EOF | kubectl apply -f -
+         apiVersion: v1
+         kind: Secret
+         metadata:
+           name: events-scheduler-secrets
+           namespace: ${{ env.NAMESPACE }}
+         type: Opaque
+         data:
+           db_user: ${{ secrets.DB_USER_BASE64 }}
+           db_password: ${{ secrets.DB_PASSWORD_BASE64 }}
+         EOF
+         
+     - name: Deploy ConfigMap
+       run: |
+         kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
+         
+     - name: Deploy manifests
+       run: |
+         # Заменяем переменные в deployment.yaml
+         sed -i "s|\${REGISTRY}|$REGISTRY|g" k8s/base/deployment.yaml
+         sed -i "s|\${IMAGE_NAME}|$IMAGE_NAME|g" k8s/base/deployment.yaml
+         sed -i "s|\${TAG}|${{ github.sha }}|g" k8s/base/deployment.yaml
+         
+         # Применяем все манифесты
+         kubectl apply -f k8s/base/deployment.yaml -n ${{ env.NAMESPACE }}
+         kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
+         kubectl apply -f k8s/base/monitoring.yaml -n ${{ env.NAMESPACE }} || true
+         
+         # Ждем успешного деплоя
+         kubectl rollout status deployment/events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
+         
+     - name: Verify deployment
+       run: |
+         echo "Checking deployment status..."
+         kubectl get pods,svc,configmap,secret,ingress -n ${{ env.NAMESPACE }}
+         kubectl get pods -n ${{ env.NAMESPACE }} -l app=events-scheduler
