@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   test:
-    runs-on: ['self-hosted', 'k8s']
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       
@@ -30,7 +30,7 @@ jobs:
 
   build:
     needs: test
-    runs-on: ['self-hosted', 'k8s']
+    runs-on: ubuntu-latest
     outputs:
       image_tags: ${{ steps.meta.outputs.tags }}
       image_sha: ${{ steps.sha_tag.outputs.tag }}
