@@ -153,10 +153,20 @@ jobs:
          # Применяем все манифесты
          kubectl apply -f k8s/base/deployment.yaml -n ${{ env.NAMESPACE }}
          kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
-         kubectl apply -f k8s/base/monitoring.yaml -n ${{ env.NAMESPACE }} || true
          
-         # Ждем успешного деплоя
-         kubectl rollout status deployment/events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
+         # Проверяем, установлен ли ServiceMonitor CRD перед применением monitoring.yaml
+         if kubectl get crd servicemonitors.monitoring.coreos.com >/dev/null 2>&1; then
+            kubectl apply -f k8s/base/monitoring.yaml -n ${{ env.NAMESPACE }}
+          else
+            echo "ServiceMonitor CRD not found, skipping monitoring configuration"
+          fi
+          
+          kubectl rollout status deployment/events-scheduler -n ${{ env.NAMESPACE }} --timeout=600s || {
+            echo "Deployment failed. Checking pod status..."
+            kubectl describe pods -n ${{ env.NAMESPACE }} -l app=events-scheduler
+            kubectl logs -n ${{ env.NAMESPACE }} -l app=events-scheduler --tail=100
+            exit 1
+          }
          
      - name: Verify deployment
        run: |
