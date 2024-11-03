@@ -17,8 +17,17 @@ spec:
       containers:
       - name: events-scheduler
         image: ${DOCKER_REGISTRY}/events-scheduler:${TAG}
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "256Mi"
+          requests:
+            cpu: "100m"
+            memory: "64mi"
         ports:
         - containerPort: 8282
+      imagePullSecrets:
+      - name: regcred
         env:
         - name: DB_HOST
           valueFrom:
