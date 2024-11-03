@@ -1,15 +1,16 @@
+// internal/services/scheduler_service.go
 package services
 
 import (
 	"context"
 	"fmt"
+	"sort"
 	"time"
 
 	"cor-events-scheduler/internal/domain/models"
 	"cor-events-scheduler/internal/domain/repositories"
 
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 type SchedulerService struct {
@@ -18,7 +19,6 @@ type SchedulerService struct {
 	analysisService *AnalysisService
 	logger          *zap.Logger
 	metrics         *SchedulerMetrics
-	db              *gorm.DB // Добавляем доступ к базе данных
 }
 
 func NewSchedulerService(
@@ -26,7 +26,6 @@ func NewSchedulerService(
 	eventRepo *repositories.EventRepository,
 	analysisService *AnalysisService,
 	logger *zap.Logger,
-	db *gorm.DB,
 ) *SchedulerService {
 	return &SchedulerService{
 		scheduleRepo:    scheduleRepo,
@@ -34,31 +33,7 @@ func NewSchedulerService(
 		analysisService: analysisService,
 		logger:          logger,
 		metrics:         NewSchedulerMetrics(),
-		db:              db,
 	}
-}
-
-func (s *SchedulerService) createOrUpdateEquipment(ctx context.Context, equipment *models.Equipment) error {
-	var existing models.Equipment
-	result := s.db.WithContext(ctx).Where("name = ? AND type = ?", equipment.Name, equipment.Type).First(&existing)
-
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			// Создаем новое оборудование
-			if err := s.db.WithContext(ctx).Create(equipment).Error; err != nil {
-				return fmt.Errorf("failed to create equipment: %w", err)
-			}
-		} else {
-			return fmt.Errorf("failed to check existing equipment: %w", result.Error)
-		}
-	} else {
-		// Обновляем существующее оборудование
-		equipment.ID = existing.ID
-		if err := s.db.WithContext(ctx).Save(equipment).Error; err != nil {
-			return fmt.Errorf("failed to update equipment: %w", err)
-		}
-	}
-	return nil
 }
 
 func (s *SchedulerService) CreateSchedule(ctx context.Context, schedule *models.Schedule) error {
@@ -66,58 +41,116 @@ func (s *SchedulerService) CreateSchedule(ctx context.Context, schedule *models.
 		return fmt.Errorf("schedule start date must be before end date")
 	}
 
-	// Начинаем транзакцию
-	tx := s.db.WithContext(ctx).Begin()
-	if tx.Error != nil {
-		return fmt.Errorf("failed to start transaction: %w", tx.Error)
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	// Сортируем блоки по порядку
+	sort.Slice(schedule.Blocks, func(i, j int) bool {
+		return schedule.Blocks[i].Order < schedule.Blocks[j].Order
+	})
 
-	// Создаем или обновляем все оборудование
-	equipmentMap := make(map[string]uint) // для хранения ID оборудования
-	for i, block := range schedule.Blocks {
-		for j, equipment := range block.Equipment {
-			if err := s.createOrUpdateEquipment(ctx, &equipment); err != nil {
-				tx.Rollback()
+	// Логгируем начальное время
+	s.logger.Info("Initial schedule time",
+		zap.Time("start_date", schedule.StartDate),
+		zap.Time("end_date", schedule.EndDate),
+	)
+
+	// Устанавливаем время начала для каждого блока и его элементов
+	currentTime := schedule.StartDate
+	totalDuration := 0
+
+	// Обрабатываем каждый блок
+	for i := range schedule.Blocks {
+		block := &schedule.Blocks[i]
+
+		// Устанавливаем время начала блока
+		block.StartTime = currentTime
+
+		s.logger.Debug("Processing block",
+			zap.String("block_name", block.Name),
+			zap.Time("start_time", block.StartTime),
+			zap.Int("duration", block.Duration),
+		)
+
+		// Сортируем элементы блока по порядку
+		sort.Slice(block.Items, func(i, j int) bool {
+			return block.Items[i].Order < block.Items[j].Order
+		})
+
+		// Обрабатываем оборудование блока
+		for j := range block.Equipment {
+			if err := s.scheduleRepo.CreateOrUpdateEquipment(ctx, &block.Equipment[j]); err != nil {
 				return fmt.Errorf("failed to process equipment for block %d: %w", i, err)
 			}
-			equipmentMap[equipment.Name+equipment.Type] = equipment.ID
-			schedule.Blocks[i].Equipment[j] = equipment
 		}
 
-		// Обрабатываем оборудование для элементов блока
-		for k, item := range block.Items {
-			for l, equipment := range item.Equipment {
-				if err := s.createOrUpdateEquipment(ctx, &equipment); err != nil {
-					tx.Rollback()
-					return fmt.Errorf("failed to process equipment for block item %d: %w", k, err)
+		// Обрабатываем элементы блока и их время
+		itemStartTime := currentTime
+		for k := range block.Items {
+			item := &block.Items[k]
+
+			// Обрабатываем оборудование элемента
+			for l := range item.Equipment {
+				if err := s.scheduleRepo.CreateOrUpdateEquipment(ctx, &item.Equipment[l]); err != nil {
+					return fmt.Errorf("failed to process equipment for item %d: %w", k, err)
 				}
-				equipmentMap[equipment.Name+equipment.Type] = equipment.ID
-				schedule.Blocks[i].Items[k].Equipment[l] = equipment
 			}
+
+			s.logger.Debug("Processing block item",
+				zap.String("item_name", item.Name),
+				zap.Time("start_time", itemStartTime),
+				zap.Int("duration", item.Duration),
+			)
+
+			itemStartTime = itemStartTime.Add(time.Duration(item.Duration) * time.Minute)
 		}
+
+		// Вычисляем технический перерыв
+		techBreakDuration := 0
+		if i < len(schedule.Blocks)-1 {
+			techBreakDuration = s.analysisService.CalculateTechBreak(block, &schedule.Blocks[i+1])
+			block.TechBreakDuration = techBreakDuration
+
+			s.logger.Debug("Technical break",
+				zap.String("block_name", block.Name),
+				zap.Int("break_duration", techBreakDuration),
+			)
+		}
+
+		// Обновляем общую длительность и время следующего блока
+		blockTotalDuration := block.Duration + techBreakDuration
+		totalDuration += blockTotalDuration
+
+		// Вычисляем время начала следующего блока
+		nextBlockStart := currentTime.Add(time.Duration(block.Duration) * time.Minute)
+		if techBreakDuration > 0 {
+			nextBlockStart = nextBlockStart.Add(time.Duration(techBreakDuration) * time.Minute)
+		}
+		currentTime = nextBlockStart
+
+		s.logger.Debug("Block timing",
+			zap.String("block_name", block.Name),
+			zap.Time("start", block.StartTime),
+			zap.Time("end", nextBlockStart),
+			zap.Int("total_duration", blockTotalDuration),
+		)
 	}
 
-	// Добавляем технические перерывы и оптимизируем расписание
-	for i := 0; i < len(schedule.Blocks)-1; i++ {
-		currentBlock := &schedule.Blocks[i]
-		nextBlock := &schedule.Blocks[i+1]
-
-		techBreak := s.analysisService.CalculateTechBreak(currentBlock, nextBlock)
-		currentBlock.TechBreakDuration = techBreak
-
-		s.metrics.techBreakDurations.Observe(float64(techBreak))
+	// Проверяем, что расписание помещается во временной интервал
+	scheduleDuration := int(schedule.EndDate.Sub(schedule.StartDate).Minutes())
+	if totalDuration > scheduleDuration {
+		return fmt.Errorf("total schedule duration (%d minutes) exceeds available time (%d minutes)",
+			totalDuration, scheduleDuration)
 	}
 
+	// Устанавливаем общую длительность и буферное время
+	schedule.TotalDuration = totalDuration
+	schedule.BufferTime = scheduleDuration - totalDuration
+
+	// Вычисляем риск и рекомендации
 	riskScore, recommendations := s.analysisService.CalculateScheduleRisk(schedule)
 	schedule.RiskScore = riskScore
 
 	s.metrics.scheduleRiskScores.Observe(riskScore)
 
+	// Оптимизируем расписание при необходимости
 	if riskScore > 0.5 {
 		optimizedSchedule, err := s.analysisService.OptimizeSchedule(ctx, schedule)
 		if err != nil {
@@ -130,15 +163,14 @@ func (s *SchedulerService) CreateSchedule(ctx context.Context, schedule *models.
 		}
 	}
 
-	// Создаем расписание
-	if err := tx.Create(schedule).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to create schedule: %w", err)
+	// Валидируем итоговое расписание
+	if err := s.validateScheduleTimes(schedule); err != nil {
+		return fmt.Errorf("schedule validation failed: %w", err)
 	}
 
-	// Фиксируем транзакцию
-	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
+	// Создаем расписание в базе данных
+	if err := s.scheduleRepo.CreateWithTransaction(ctx, schedule); err != nil {
+		return fmt.Errorf("failed to create schedule: %w", err)
 	}
 
 	s.metrics.scheduleCreations.Inc()
@@ -146,32 +178,64 @@ func (s *SchedulerService) CreateSchedule(ctx context.Context, schedule *models.
 	s.logger.Info("Schedule created",
 		zap.String("name", schedule.Name),
 		zap.Float64("risk_score", riskScore),
+		zap.Int("total_duration", totalDuration),
+		zap.Int("buffer_time", schedule.BufferTime),
 		zap.Strings("recommendations", recommendations),
 	)
 
 	return nil
 }
 
-// internal/services/schedule_service.go
+func (s *SchedulerService) validateScheduleTimes(schedule *models.Schedule) error {
+	lastEndTime := schedule.StartDate
+
+	for i, block := range schedule.Blocks {
+		// Проверяем, что блок начинается после окончания предыдущего
+		if block.StartTime.Before(lastEndTime) {
+			return fmt.Errorf("block %d (%s) starts before previous block ends", i, block.Name)
+		}
+
+		// Проверяем последовательность времени элементов блока
+		itemEndTime := block.StartTime
+		for j, item := range block.Items {
+			itemEndTime = itemEndTime.Add(time.Duration(item.Duration) * time.Minute)
+
+			if j > 0 && item.Order <= block.Items[j-1].Order {
+				return fmt.Errorf("invalid item order in block %s: item %s", block.Name, item.Name)
+			}
+		}
+
+		// Вычисляем время окончания блока с учетом перерыва
+		blockEndTime := block.StartTime.Add(time.Duration(block.Duration) * time.Minute)
+		if block.TechBreakDuration > 0 {
+			blockEndTime = blockEndTime.Add(time.Duration(block.TechBreakDuration) * time.Minute)
+		}
+
+		lastEndTime = blockEndTime
+	}
+
+	// Проверяем, что последний блок заканчивается до окончания расписания
+	if lastEndTime.After(schedule.EndDate) {
+		return fmt.Errorf("schedule extends beyond end time")
+	}
+
+	return nil
+}
 
 func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.Schedule) error {
-	// Проверяем существование расписания
 	existingSchedule, err := s.scheduleRepo.GetByID(ctx, schedule.ID)
 	if err != nil {
 		return fmt.Errorf("schedule not found: %w", err)
 	}
 
-	// Проверяем и обновляем зависимые данные
 	if err := s.validateScheduleUpdate(existingSchedule, schedule); err != nil {
 		return fmt.Errorf("invalid schedule update: %w", err)
 	}
 
-	// Проверяем, что новые даты не конфликтуют с существующими блоками
 	if err := s.validateScheduleDates(schedule); err != nil {
 		return fmt.Errorf("invalid schedule dates: %w", err)
 	}
 
-	// Обновляем технические перерывы и оптимизируем расписание
 	for i := 0; i < len(schedule.Blocks)-1; i++ {
 		currentBlock := &schedule.Blocks[i]
 		nextBlock := &schedule.Blocks[i+1]
@@ -182,13 +246,11 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.
 		s.metrics.techBreakDurations.Observe(float64(techBreak))
 	}
 
-	// Рассчитываем новый риск
 	riskScore, recommendations := s.analysisService.CalculateScheduleRisk(schedule)
 	schedule.RiskScore = riskScore
 
 	s.metrics.scheduleRiskScores.Observe(riskScore)
 
-	// Если риск высокий, пытаемся оптимизировать
 	if riskScore > 0.5 {
 		optimizedSchedule, err := s.analysisService.OptimizeSchedule(ctx, schedule)
 		if err != nil {
@@ -201,7 +263,6 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.
 		}
 	}
 
-	// Обновляем расписание через репозиторий
 	if err := s.scheduleRepo.Update(ctx, schedule); err != nil {
 		return fmt.Errorf("failed to update schedule: %w", err)
 	}
@@ -216,50 +277,6 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.
 		zap.Time("start_date", schedule.StartDate),
 		zap.Time("end_date", schedule.EndDate),
 	)
-
-	return nil
-}
-
-// Вспомогательные функции для валидации
-func (s *SchedulerService) validateScheduleUpdate(existing, new *models.Schedule) error {
-	// Проверяем, что не меняются критические поля, если это запрещено бизнес-логикой
-	if existing.EventID != new.EventID {
-		return fmt.Errorf("cannot change event association")
-	}
-
-	// Проверяем валидность дат
-	if new.StartDate.After(new.EndDate) {
-		return fmt.Errorf("start date must be before end date")
-	}
-
-	// Проверяем, что длительность всех блоков не превышает общую длительность расписания
-	totalDuration := 0
-	for _, block := range new.Blocks {
-		totalDuration += block.Duration + block.TechBreakDuration
-	}
-
-	scheduleDuration := int(new.EndDate.Sub(new.StartDate).Minutes())
-	if totalDuration > scheduleDuration {
-		return fmt.Errorf("total blocks duration (%d) exceeds schedule duration (%d)",
-			totalDuration, scheduleDuration)
-	}
-
-	return nil
-}
-
-func (s *SchedulerService) validateScheduleDates(schedule *models.Schedule) error {
-	// Получаем информацию о мероприятии
-	event, err := s.eventRepo.GetByID(context.Background(), schedule.EventID)
-	if err != nil {
-		return fmt.Errorf("failed to get event info: %w", err)
-	}
-
-	// Проверяем, что даты расписания входят в даты мероприятия
-	if schedule.StartDate.Before(event.StartDate) || schedule.EndDate.After(event.EndDate) {
-		return fmt.Errorf("schedule dates must be within event dates (event: %s - %s)",
-			event.StartDate.Format("2006-01-02"),
-			event.EndDate.Format("2006-01-02"))
-	}
 
 	return nil
 }
@@ -281,6 +298,18 @@ func (s *SchedulerService) DeleteSchedule(ctx context.Context, id uint) error {
 
 	s.logger.Info("Schedule deleted", zap.Uint("id", id))
 	return nil
+}
+
+func (s *SchedulerService) ListSchedules(ctx context.Context, page, pageSize int) ([]models.Schedule, int, error) {
+	offset := (page - 1) * pageSize
+	var schedules []models.Schedule
+	var total int64
+
+	if err := s.scheduleRepo.List(ctx, offset, pageSize, &schedules, &total); err != nil {
+		return nil, 0, fmt.Errorf("failed to list schedules: %w", err)
+	}
+
+	return schedules, int(total), nil
 }
 
 func (s *SchedulerService) ArrangeSchedule(ctx context.Context, scheduleID uint, items []models.BlockItem) error {
@@ -340,8 +369,8 @@ func (s *SchedulerService) ArrangeSchedule(ctx context.Context, scheduleID uint,
 		return fmt.Errorf("arranged schedule exceeds end time")
 	}
 
-	// Сохраняем обновленное расписание
-	if err := s.scheduleRepo.Update(ctx, schedule); err != nil {
+	// Сохраняем обновленное расписание через репозиторий
+	if err := s.scheduleRepo.UpdateScheduleArrangement(ctx, schedule); err != nil {
 		return fmt.Errorf("failed to save arranged schedule: %w", err)
 	}
 
@@ -353,16 +382,42 @@ func (s *SchedulerService) ArrangeSchedule(ctx context.Context, scheduleID uint,
 	return nil
 }
 
-func (s *SchedulerService) ListSchedules(ctx context.Context, page, pageSize int) ([]models.Schedule, int, error) {
-	offset := (page - 1) * pageSize
-	var schedules []models.Schedule
-	var total int64
-
-	if err := s.scheduleRepo.List(ctx, offset, pageSize, &schedules, &total); err != nil {
-		return nil, 0, fmt.Errorf("failed to list schedules: %w", err)
+func (s *SchedulerService) validateScheduleUpdate(existing, new *models.Schedule) error {
+	if existing.EventID != new.EventID {
+		return fmt.Errorf("cannot change event association")
 	}
 
-	return schedules, int(total), nil
+	if new.StartDate.After(new.EndDate) {
+		return fmt.Errorf("start date must be before end date")
+	}
+
+	totalDuration := 0
+	for _, block := range new.Blocks {
+		totalDuration += block.Duration + block.TechBreakDuration
+	}
+
+	scheduleDuration := int(new.EndDate.Sub(new.StartDate).Minutes())
+	if totalDuration > scheduleDuration {
+		return fmt.Errorf("total blocks duration (%d) exceeds schedule duration (%d)",
+			totalDuration, scheduleDuration)
+	}
+
+	return nil
+}
+
+func (s *SchedulerService) validateScheduleDates(schedule *models.Schedule) error {
+	event, err := s.eventRepo.GetByID(context.Background(), schedule.EventID)
+	if err != nil {
+		return fmt.Errorf("failed to get event info: %w", err)
+	}
+
+	if schedule.StartDate.Before(event.StartDate) || schedule.EndDate.After(event.EndDate) {
+		return fmt.Errorf("schedule dates must be within event dates (event: %s - %s)",
+			event.StartDate.Format("2006-01-02"),
+			event.EndDate.Format("2006-01-02"))
+	}
+
+	return nil
 }
 
 func (s *SchedulerService) AnalysisService() *AnalysisService {

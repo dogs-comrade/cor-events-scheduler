@@ -17,8 +17,48 @@ func NewScheduleRepository(db *gorm.DB) *ScheduleRepository {
 	return &ScheduleRepository{db: db}
 }
 
-func (r *ScheduleRepository) Create(ctx context.Context, schedule *models.Schedule) error {
-	return r.db.WithContext(ctx).Create(schedule).Error
+func (r *ScheduleRepository) CreateOrUpdateEquipment(ctx context.Context, equipment *models.Equipment) error {
+	var existing models.Equipment
+	result := r.db.WithContext(ctx).Where("name = ? AND type = ?", equipment.Name, equipment.Type).First(&existing)
+
+	if result.Error != nil {
+		if result.Error == gorm.ErrRecordNotFound {
+			if err := r.db.WithContext(ctx).Create(equipment).Error; err != nil {
+				return fmt.Errorf("failed to create equipment: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to check existing equipment: %w", result.Error)
+		}
+	} else {
+		equipment.ID = existing.ID
+		if err := r.db.WithContext(ctx).Save(equipment).Error; err != nil {
+			return fmt.Errorf("failed to update equipment: %w", err)
+		}
+	}
+	return nil
+}
+
+func (r *ScheduleRepository) CreateWithTransaction(ctx context.Context, schedule *models.Schedule) error {
+	tx := r.db.WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return fmt.Errorf("failed to start transaction: %w", tx.Error)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+		}
+	}()
+
+	if err := tx.Create(schedule).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to create schedule: %w", err)
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }
 
 func (r *ScheduleRepository) Update(ctx context.Context, schedule *models.Schedule) error {
@@ -27,13 +67,11 @@ func (r *ScheduleRepository) Update(ctx context.Context, schedule *models.Schedu
 		return fmt.Errorf("failed to start transaction: %w", tx.Error)
 	}
 
-	// Удаляем старые блоки
 	if err := tx.Where("schedule_id = ?", schedule.ID).Delete(&models.Block{}).Error; err != nil {
 		tx.Rollback()
 		return fmt.Errorf("failed to delete old blocks: %w", err)
 	}
 
-	// Обновляем расписание
 	if err := tx.Save(schedule).Error; err != nil {
 		tx.Rollback()
 		return fmt.Errorf("failed to update schedule: %w", err)
@@ -55,6 +93,8 @@ func (r *ScheduleRepository) GetByID(ctx context.Context, id uint) (*models.Sche
 		Preload("Blocks.Items", func(db *gorm.DB) *gorm.DB {
 			return db.Order("block_items.order ASC")
 		}).
+		Preload("Blocks.Equipment").
+		Preload("Blocks.Items.Equipment").
 		First(&schedule, id).Error
 	if err != nil {
 		return nil, err
@@ -74,5 +114,21 @@ func (r *ScheduleRepository) List(ctx context.Context, offset, limit int, schedu
 		Preload("Blocks.Items", func(db *gorm.DB) *gorm.DB {
 			return db.Order("block_items.order ASC")
 		}).
+		Preload("Blocks.Equipment").
+		Preload("Blocks.Items.Equipment").
 		Find(schedules).Error
+}
+
+func (r *ScheduleRepository) UpdateScheduleArrangement(ctx context.Context, schedule *models.Schedule) error {
+	tx := r.db.WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return fmt.Errorf("failed to start transaction: %w", tx.Error)
+	}
+
+	if err := tx.Save(schedule).Error; err != nil {
+		tx.Rollback()
+		return fmt.Errorf("failed to update schedule arrangement: %w", err)
+	}
+
+	return tx.Commit().Error
 }

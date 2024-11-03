@@ -1,6 +1,7 @@
 package models
 
 import (
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -28,7 +29,7 @@ type Block struct {
 	Name              string         `json:"name" binding:"required"`
 	Type              string         `json:"type"`
 	StartTime         time.Time      `json:"start_time"`
-	Duration          int            `json:"duration"`
+	Duration          int            `json:"duration" binding:"required,min=1"`
 	TechBreakDuration int            `json:"tech_break_duration"`
 	Equipment         []Equipment    `gorm:"many2many:block_equipment;" json:"equipment"`
 	Complexity        float64        `json:"complexity"`
@@ -78,4 +79,21 @@ type RiskFactor struct {
 	Probability float64 `json:"probability"`
 	Impact      float64 `json:"impact"`
 	Mitigation  string  `json:"mitigation"`
+}
+
+func (b *Block) EndTime() time.Time {
+	return b.StartTime.Add(time.Duration(b.Duration+b.TechBreakDuration) * time.Minute)
+}
+
+func (b *Block) Validate() error {
+	if b.Name == "" {
+		return errors.New("block name is required")
+	}
+	if b.Duration <= 0 {
+		return errors.New("block duration must be positive")
+	}
+	if b.StartTime.IsZero() {
+		return errors.New("block start time must be set")
+	}
+	return nil
 }

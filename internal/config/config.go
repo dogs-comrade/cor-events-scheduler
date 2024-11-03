@@ -51,8 +51,8 @@ func Load() (*Config, error) {
 	viper.SetDefault("DB_NAME", "mew")
 
 	// Analysis defaults
-	viper.SetDefault("MIN_TECH_BREAK_DURATION", 15)
-	viper.SetDefault("EQUIPMENT_COMPLEXITY_FACTOR", 1.5)
+	viper.SetDefault("MIN_TECH_BREAK_DURATION", 1)
+	viper.SetDefault("EQUIPMENT_COMPLEXITY_FACTOR", 1.0)
 	viper.SetDefault("MULTIDAY_BUFFER_TIME", 60)
 	viper.SetDefault("WEATHER_RISK_MULTIPLIER", 1.2)
 	viper.SetDefault("HUMAN_FACTOR_MULTIPLIER", 1.3)

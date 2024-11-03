@@ -55,7 +55,6 @@ func main() {
 		eventRepo,
 		analysisService,
 		logger,
-		database,
 	)
 
 	// Initialize router
@@ -111,8 +110,10 @@ func setupRouter(schedulerService *services.SchedulerService, logger *zap.Logger
 	router.Use(middleware.NewMetricsMiddleware())
 
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
-
 	router.GET("/health", handlers.HealthCheck)
+
+	formatterService := services.NewFormatterService(schedulerService)
+	formatterHandler := handlers.NewFormatterHandler(formatterService, logger)
 
 	v1 := router.Group("/api/v1")
 	{
@@ -126,6 +127,8 @@ func setupRouter(schedulerService *services.SchedulerService, logger *zap.Logger
 			schedules.DELETE("/:id", handler.DeleteSchedule)
 			schedules.POST("/analyze", handler.AnalyzeSchedule)
 			schedules.POST("/optimize", handler.OptimizeSchedule)
+			schedules.GET("/:id/public", formatterHandler.GetPublicSchedule)
+			schedules.GET("/:id/volunteer", formatterHandler.GetVolunteerSchedule)
 		}
 
 		// События пока закомментируем, так как нет имплементации
