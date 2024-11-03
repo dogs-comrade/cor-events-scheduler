@@ -1,27 +1,22 @@
 name: CI/CD Pipeline
-
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-
 env:
   DOCKER_REGISTRY: ghcr.io/${{ github.repository_owner }}
   KUBECONFIG_FILE: ${{ secrets.KUBECONFIG }}
   NAMESPACE: events-scheduler
-
 jobs:
   test:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-
     - name: Set up Go
       uses: actions/setup-go@v4
       with:
         go-version: '1.21'
-
     - name: Run tests
       run: go test -v ./...
 
@@ -30,17 +25,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v2
-
     - name: Login to GitHub Container Registry
       uses: docker/login-action@v2
       with:
         registry: ghcr.io
         username: ${{ github.repository_owner }}
         password: ${{ secrets.GITHUB_TOKEN }}
-
     - name: Build and push Docker image
       uses: docker/build-push-action@v4
       with:
@@ -57,7 +49,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v3
-
+    
     - name: Set up kubeconfig
       run: |
         mkdir -p $HOME/.kube
@@ -87,16 +79,26 @@ jobs:
           db_password: ${{ secrets.DB_PASSWORD_BASE64 }}
         EOF
 
-    - name: Deploy application
+    - name: Deploy ConfigMap
       run: |
-        # Update image tag in deployment
-        kubectl set image deployment/events-scheduler \
-          events-scheduler=${{ env.DOCKER_REGISTRY }}/events-scheduler:${{ github.sha }} \
-          -n ${{ env.NAMESPACE }}
+        kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
 
-        # Wait for rollout to complete
+    - name: Deploy manifests
+      run: |
+        # Заменяем переменные в deployment.yaml
+        sed -i "s|\${DOCKER_REGISTRY}|$DOCKER_REGISTRY|g" k8s/base/deployment.yaml
+        sed -i "s|\${TAG}|${{ github.sha }}|g" k8s/base/deployment.yaml
+
+        # Применяем все манифесты
+        kubectl apply -f k8s/base/deployment.yaml -n ${{ env.NAMESPACE }}
+        kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
+        kubectl apply -f k8s/base/monitoring.yaml -n ${{ env.NAMESPACE }} || true
+        
+        # Ждем успешного деплоя
         kubectl rollout status deployment/events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
 
     - name: Verify deployment
       run: |
+        echo "Checking deployment status..."
+        kubectl get pods,svc,configmap,secret,ingress -n ${{ env.NAMESPACE }}
         kubectl get pods -n ${{ env.NAMESPACE }} -l app=events-scheduler
