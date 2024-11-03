@@ -1,204 +1,116 @@
 name: CI/CD Pipeline
 on:
- push:
-   branches: [ main ]
- pull_request:
-   branches: [ main ]
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
 
 env:
- REGISTRY: ghcr.io
- IMAGE_NAME: ${{ github.repository }}
- NAMESPACE: events-scheduler
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  NAMESPACE: events-scheduler
 
 permissions:
- contents: read
- packages: write
+  contents: read
+  packages: write
 
 jobs:
- test:
-   runs-on: ubuntu-latest
-   steps:
-     - uses: actions/checkout@v4
-     
-     # Кэширование зависимостей Go
-     - name: Go Cache
-       uses: actions/cache@v3
-       with:
-         path: |
-           ~/.cache/go-build
-           ~/go/pkg/mod
-         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-         restore-keys: |
-           ${{ runner.os }}-go-
-           
-     - name: Set up Go
-       uses: actions/setup-go@v4
-       with:
-         go-version: '1.21'
-         
-     - name: Run tests
-       run: go test -v ./...
+  test:
+    runs-on: ['self-hosted', 'k8s']
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: '1.21'
+          
+      - name: Run tests
+        run: go test -v ./...
 
- build:
-   needs: test
-   runs-on: ubuntu-latest
-   outputs:
-     image_tags: ${{ steps.meta.outputs.tags }}
-     image_sha: ${{ steps.sha_tag.outputs.tag }}
-   steps:
-     - name: Checkout repository
-       uses: actions/checkout@v4
-       
-     # Кэширование слоев Docker
-     - name: Set up Docker Buildx
-       uses: docker/setup-buildx-action@v3
-       
-     - name: Cache Docker layers
-       uses: actions/cache@v3
-       with:
-         path: /tmp/.buildx-cache
-         key: ${{ runner.os }}-buildx-${{ github.sha }}
-         restore-keys: |
-           ${{ runner.os }}-buildx-
-       
-     - name: Log in to the Container registry
-       uses: docker/login-action@v3
-       with:
-         registry: ${{ env.REGISTRY }}
-         username: ${{ github.actor }}
-         password: ${{ secrets.GITHUB_TOKEN }}
-         
-     - name: Extract metadata
-       id: meta
-       uses: docker/metadata-action@v5
-       with:
-         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-         tags: |
-           type=sha
-           type=ref,event=branch
-           type=semver,pattern={{version}}
-           
-     # Создаем отдельный SHA тег для использования в деплое
-     - name: Generate SHA tag
-       id: sha_tag
-       run: |
-         SHA_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
-         echo "tag=${SHA_TAG}" >> $GITHUB_OUTPUT
-           
-     - name: Build and push Docker image
-       uses: docker/build-push-action@v5
-       with:
-         context: .
-         push: true
-         tags: |
-           ${{ steps.meta.outputs.tags }}
-           ${{ steps.sha_tag.outputs.tag }}
-         labels: ${{ steps.meta.outputs.labels }}
-         cache-from: type=local,src=/tmp/.buildx-cache
-         cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+  build:
+    needs: test
+    runs-on: ['self-hosted', 'k8s']
+    outputs:
+      image_tags: ${{ steps.meta.outputs.tags }}
+      image_sha: ${{ steps.sha_tag.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        
+      - name: Log in to Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            
+      - name: Generate SHA tag
+        id: sha_tag
+        run: |
+          SHA_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+          echo "tag=${SHA_TAG}" >> $GITHUB_OUTPUT
+            
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            ${{ steps.sha_tag.outputs.tag }}
+          labels: ${{ steps.meta.outputs.labels }}
 
-     # Очистка кэша для избежания его разрастания
-     - name: Move cache
-       run: |
-         rm -rf /tmp/.buildx-cache
-         mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+  deploy:
+    needs: build
+    runs-on: ['self-hosted', 'k8s']
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Create namespace
+        run: |
+          kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
+          
+      - name: Update Secrets
+        run: |
+          cat <<EOF | kubectl apply -f -
+          apiVersion: v1
+          kind: Secret
+          metadata:
+            name: events-scheduler-secrets
+            namespace: ${{ env.NAMESPACE }}
+          type: Opaque
+          data:
+            db_user: ${{ secrets.DB_USER_BASE64 }}
+            db_password: ${{ secrets.DB_PASSWORD_BASE64 }}
+          EOF
+          
+      - name: Deploy manifests
+        run: |
+          # Create temp deployment file
+          cp k8s/base/deployment.yaml k8s/base/deployment-temp.yaml
+          
+          # Replace variables
+          sed -i "s|\${DOCKER_REGISTRY}|${{ env.REGISTRY }}|g" k8s/base/deployment-temp.yaml
+          sed -i "s|\${TAG}|sha-${{ github.sha }}|g" k8s/base/deployment-temp.yaml
+          
+          # Apply manifests
+          kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
+          kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
+          kubectl apply -f k8s/base/deployment-temp.yaml -n ${{ env.NAMESPACE }}
+          
+          rm k8s/base/deployment-temp.yaml
 
- deploy:
-   needs: build
-   runs-on: ubuntu-latest
-   steps:
-     - uses: actions/checkout@v4
-     
-     - name: Set up kubeconfig
-       run: |
-         mkdir -p $HOME/.kube
-         echo "${{ secrets.KUBECONFIG }}" > $HOME/.kube/config
-         chmod 600 $HOME/.kube/config
-         
-     - name: Install kubectl
-       uses: azure/setup-kubectl@v3
-       with:
-         version: 'latest'
-         
-     - name: Create namespace if not exists
-       run: |
-         kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
-         
-     - name: Update Kubernetes secrets
-       run: |
-         cat <<EOF | kubectl apply -f -
-         apiVersion: v1
-         kind: Secret
-         metadata:
-           name: events-scheduler-secrets
-           namespace: ${{ env.NAMESPACE }}
-         type: Opaque
-         data:
-           db_user: ${{ secrets.DB_USER_BASE64 }}
-           db_password: ${{ secrets.DB_PASSWORD_BASE64 }}
-         EOF
-         
-     - name: Deploy ConfigMap
-       run: |
-         kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
-         
-     - name: Deploy base manifests
-       run: |
-             # Create temporary file for modified deployment
-             cp k8s/base/deployment.yaml k8s/base/deployment-temp.yaml
-             
-             # Replace variables in temporary file using the correct environment variables
-             sed -i "s|\${DOCKER_REGISTRY}|${{ env.REGISTRY }}|g" k8s/base/deployment-temp.yaml
-             sed -i "s|\${TAG}|sha-${{ github.sha }}|g" k8s/base/deployment-temp.yaml
-             
-             # Check the result of substitution
-             echo "Checking deployment file after variable substitution:"
-             cat k8s/base/deployment-temp.yaml
-             
-             # Apply ConfigMap
-             kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
-             
-             # Apply Service
-             kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
-     
-             # Apply modified Deployment
-             kubectl apply -f k8s/base/deployment-temp.yaml -n ${{ env.NAMESPACE }}
-     
-             # Clean up temporary file
-             rm k8s/base/deployment-temp.yaml
-   
-     - name: Wait for deployment
-       run: |
-           echo "Waiting for pods to be ready..."
-           kubectl wait --for=condition=ready pod -l app=events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
-           
-           echo "Checking deployment rollout status..."
-           kubectl rollout status deployment/events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
-   
-     - name: Debug deployment if failed
-       if: failure()
-       run: |
-           echo "Deployment failed. Collecting debug information..."
-           
-           echo "Current image in deployment:"
-           kubectl get deployment events-scheduler -n ${{ env.NAMESPACE }} -o=jsonpath='{.spec.template.spec.containers[0].image}'
-           
-           echo "Pod status:"
-           kubectl get pods -n ${{ env.NAMESPACE }} -l app=events-scheduler -o wide
-           
-           echo "Pod descriptions:"
-           kubectl describe pods -n ${{ env.NAMESPACE }} -l app=events-scheduler
-           
-           echo "Recent pod events:"
-           kubectl get events -n ${{ env.NAMESPACE }} --sort-by='.metadata.creationTimestamp' | tail -n 20
-   
-     - name: Verify deployment
-       run: |
-           echo "Current deployment status:"
-           kubectl get deployment events-scheduler -n ${{ env.NAMESPACE }} -o wide
-           
-           echo "Pod status:"
-           kubectl get pods -n ${{ env.NAMESPACE }} -l app=events-scheduler -o wide
-           
-           echo "Service status:"
-           kubectl get svc -n ${{ env.NAMESPACE }}
+      - name: Verify deployment
+        run: |
+          kubectl wait --for=condition=ready pod -l app=events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
+          kubectl get pods,svc -n ${{ env.NAMESPACE }}
