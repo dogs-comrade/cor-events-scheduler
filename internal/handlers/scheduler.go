@@ -27,6 +27,16 @@ func NewSchedulerHandler(service *services.SchedulerService, logger *zap.Logger)
 	}
 }
 
+// @Summary Create a new schedule
+// @Description Create a new event schedule with blocks and items
+// @Tags schedules
+// @Accept json
+// @Produce json
+// @Param schedule body models.Schedule true "Schedule object"
+// @Success 201 {object} models.Schedule
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /schedules [post]
 func (h *SchedulerHandler) CreateSchedule(c *gin.Context) {
 	start := time.Now()
 	path := c.Request.URL.Path
@@ -75,6 +85,16 @@ func recordMetrics(method, path string, status int, start time.Time) {
 	metrics.HttpRequestDuration.WithLabelValues(method, path).Observe(duration.Seconds())
 }
 
+// @Summary Analyze schedule risks
+// @Description Analyze potential risks and get recommendations for a schedule
+// @Tags schedules
+// @Accept json
+// @Produce json
+// @Param schedule body models.Schedule true "Schedule to analyze"
+// @Success 200 {object} AnalysisResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /schedules/analyze [post]
 func (h *SchedulerHandler) AnalyzeSchedule(c *gin.Context) {
 	var schedule models.Schedule
 	if err := c.ShouldBindJSON(&schedule); err != nil {
@@ -109,6 +129,16 @@ func (h *SchedulerHandler) AnalyzeSchedule(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// @Summary Optimize schedule
+// @Description Optimize a schedule to minimize risks and improve efficiency
+// @Tags schedules
+// @Accept json
+// @Produce json
+// @Param schedule body models.Schedule true "Schedule to optimize"
+// @Success 200 {object} OptimizationResponse
+// @Failure 400 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /schedules/optimize [post]
 func (h *SchedulerHandler) OptimizeSchedule(c *gin.Context) {
 	var schedule models.Schedule
 	if err := c.ShouldBindJSON(&schedule); err != nil {
@@ -253,6 +283,16 @@ func (h *SchedulerHandler) calculateScheduleEfficiency(schedule *models.Schedule
 	return (usedTime / totalTime) * 100
 }
 
+// @Summary List all schedules
+// @Description Get a paginated list of schedules
+// @Tags schedules
+// @Accept json
+// @Produce json
+// @Param page query int false "Page number" default(1)
+// @Param page_size query int false "Items per page" default(10)
+// @Success 200 {object} ListSchedulesResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /schedules [get]
 func (h *SchedulerHandler) ListSchedules(c *gin.Context) {
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
@@ -278,6 +318,16 @@ func (h *SchedulerHandler) ListSchedules(c *gin.Context) {
 	})
 }
 
+// @Summary Get a schedule by ID
+// @Description Get detailed information about a specific schedule
+// @Tags schedules
+// @Accept json
+// @Produce json
+// @Param id path int true "Schedule ID"
+// @Success 200 {object} models.Schedule
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /schedules/{id} [get]
 func (h *SchedulerHandler) GetSchedule(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -297,6 +347,18 @@ func (h *SchedulerHandler) GetSchedule(c *gin.Context) {
 	c.JSON(http.StatusOK, schedule)
 }
 
+// @Summary Update a schedule
+// @Description Update an existing schedule's information
+// @Tags schedules
+// @Accept json
+// @Produce json
+// @Param id path int true "Schedule ID"
+// @Param schedule body models.Schedule true "Updated schedule object"
+// @Success 200 {object} models.Schedule
+// @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /schedules/{id} [put]
 func (h *SchedulerHandler) UpdateSchedule(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
@@ -329,6 +391,16 @@ func (h *SchedulerHandler) UpdateSchedule(c *gin.Context) {
 	c.JSON(http.StatusOK, schedule)
 }
 
+// @Summary Delete a schedule
+// @Description Delete a schedule by its ID
+// @Tags schedules
+// @Accept json
+// @Produce json
+// @Param id path int true "Schedule ID"
+// @Success 204 "No Content"
+// @Failure 404 {object} ErrorResponse
+// @Failure 500 {object} ErrorResponse
+// @Router /schedules/{id} [delete]
 func (h *SchedulerHandler) DeleteSchedule(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {

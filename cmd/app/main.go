@@ -10,6 +10,8 @@ import (
 	"syscall"
 	"time"
 
+	"cor-events-scheduler/docs"
+	_ "cor-events-scheduler/docs"
 	"cor-events-scheduler/internal/config"
 	"cor-events-scheduler/internal/domain/repositories"
 	"cor-events-scheduler/internal/handlers"
@@ -21,9 +23,25 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"go.uber.org/zap"
 )
 
+// @title Event Scheduler API
+// @version 1.0
+// @description Service for managing event schedules with risk analysis and optimization
+// @termsOfService http://swagger.io/terms/
+
+// @contact.name API Support
+// @contact.url http://www.swagger.io/support
+// @contact.email support@swagger.io
+
+// @license.name Apache 2.0
+// @license.url http://www.apache.org/licenses/LICENSE-2.0.html
+
+// @host localhost:8282
+// @BasePath /api/v1
 func main() {
 	// Initialize logger
 	logger := utils.InitLogger()
@@ -44,6 +62,14 @@ func main() {
 		logger.Fatal("Failed to initialize database", zap.Error(err))
 	}
 
+	// Initialize swagger docs
+	docs.SwaggerInfo.Title = "Event Scheduler API"
+	docs.SwaggerInfo.Description = "Service for managing event schedules with risk analysis and optimization"
+	docs.SwaggerInfo.Version = "1.0"
+	docs.SwaggerInfo.Host = "localhost:8282"
+	docs.SwaggerInfo.BasePath = "/api/v1"
+	docs.SwaggerInfo.Schemes = []string{"http", "https"}
+
 	// Initialize repositories
 	scheduleRepo := repositories.NewScheduleRepository(database)
 	eventRepo := repositories.NewEventRepository(database)
@@ -57,8 +83,16 @@ func main() {
 		logger,
 	)
 
-	// Initialize router
+	// Initialize router with Swagger docs
 	router := setupRouter(schedulerService, logger)
+
+	// Программный способ задания информации о API
+	docs.SwaggerInfo.Title = "Event Scheduler API"
+	docs.SwaggerInfo.Description = "Service for managing event schedules with risk analysis and optimization"
+	docs.SwaggerInfo.Version = "1.0"
+	docs.SwaggerInfo.Host = "localhost:8282"
+	docs.SwaggerInfo.BasePath = "/api/v1"
+	docs.SwaggerInfo.Schemes = []string{"http", "https"}
 
 	// Set Gin mode
 	if os.Getenv("GIN_MODE") == "release" {
@@ -115,6 +149,9 @@ func setupRouter(schedulerService *services.SchedulerService, logger *zap.Logger
 	formatterService := services.NewFormatterService(schedulerService)
 	formatterHandler := handlers.NewFormatterHandler(formatterService, logger)
 
+	url := ginSwagger.URL("http://localhost:8282/swagger/doc.json")
+	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, url))
+
 	v1 := router.Group("/api/v1")
 	{
 		schedules := v1.Group("/schedules")
@@ -130,17 +167,6 @@ func setupRouter(schedulerService *services.SchedulerService, logger *zap.Logger
 			schedules.GET("/:id/public", formatterHandler.GetPublicSchedule)
 			schedules.GET("/:id/volunteer", formatterHandler.GetVolunteerSchedule)
 		}
-
-		// События пока закомментируем, так как нет имплементации
-		/*
-		   events := v1.Group("/events")
-		   {
-		       handler := handlers.NewEventHandler(schedulerService, logger)
-		       events.POST("/:id/schedules", handler.CreateEventSchedule)
-		       events.GET("/:id/schedules", handler.GetEventSchedules)
-		       events.GET("/:id/analysis", handler.GetEventAnalysis)
-		   }
-		*/
 	}
 
 	return router

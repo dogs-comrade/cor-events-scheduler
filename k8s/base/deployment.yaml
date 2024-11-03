@@ -1,0 +1,66 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: events-scheduler
+  labels:
+    app: events-scheduler
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: events-scheduler
+  template:
+    metadata:
+      labels:
+        app: events-scheduler
+    spec:
+      containers:
+      - name: events-scheduler
+        image: ${DOCKER_REGISTRY}/events-scheduler:${TAG}
+        ports:
+        - containerPort: 8282
+        env:
+        - name: DB_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: events-scheduler-config
+              key: db_host
+        - name: DB_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: events-scheduler-config
+              key: db_port
+        - name: DB_NAME
+          valueFrom:
+            configMapKeyRef:
+              name: events-scheduler-config
+              key: db_name
+        - name: DB_USER
+          valueFrom:
+            secretKeyRef:
+              name: events-scheduler-secrets
+              key: db_user
+        - name: DB_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: events-scheduler-secrets
+              key: db_password
+        resources:
+          limits:
+            cpu: "500m"
+            memory: "512Mi"
+          requests:
+            cpu: "200m"
+            memory: "256Mi"
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: 8282
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: 8282
+          initialDelaySeconds: 15
+          periodSeconds: 20

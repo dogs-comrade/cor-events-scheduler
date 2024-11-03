@@ -1,0 +1,14 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: events-scheduler
+  labels:
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: events-scheduler
+  endpoints:
+  - port: http
+    path: /metrics
+    interval: 15s

@@ -1,0 +1,658 @@
+basePath: /api/v1
+definitions:
+  cor-events-scheduler_internal_domain_models.Block:
+    properties:
+      complexity:
+        example: 0.7
+        type: number
+      created_at:
+        type: string
+      dependencies:
+        items:
+          type: integer
+        type: array
+      duration:
+        example: 120
+        minimum: 1
+        type: integer
+      equipment:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Equipment'
+        type: array
+      id:
+        example: 1
+        type: integer
+      items:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.BlockItem'
+        type: array
+      location:
+        example: Main Stage
+        type: string
+      max_participants:
+        example: 1000
+        type: integer
+      name:
+        example: Main Stage Performance
+        type: string
+      order:
+        example: 1
+        type: integer
+      required_staff:
+        example: 10
+        type: integer
+      risk_factors:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.RiskFactor'
+        type: array
+      schedule_id:
+        example: 1
+        type: integer
+      start_time:
+        example: "2024-07-01T14:00:00Z"
+        type: string
+      tech_break_duration:
+        example: 30
+        type: integer
+      type:
+        example: performance
+        type: string
+      updated_at:
+        type: string
+    required:
+    - duration
+    - name
+    type: object
+  cor-events-scheduler_internal_domain_models.BlockItem:
+    properties:
+      block_id:
+        example: 1
+        type: integer
+      created_at:
+        type: string
+      description:
+        example: Live performance by the main band
+        type: string
+      duration:
+        example: 45
+        type: integer
+      equipment:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Equipment'
+        type: array
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Band Performance
+        type: string
+      order:
+        example: 1
+        type: integer
+      participants:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Participant'
+        type: array
+      requirements:
+        example: Stage lighting, sound system
+        type: string
+      type:
+        example: performance
+        type: string
+      updated_at:
+        type: string
+    type: object
+  cor-events-scheduler_internal_domain_models.Equipment:
+    properties:
+      complexity_score:
+        example: 0.8
+        type: number
+      created_at:
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Sound System
+        type: string
+      setup_time:
+        example: 30
+        type: integer
+      type:
+        example: audio
+        type: string
+      updated_at:
+        type: string
+    type: object
+  cor-events-scheduler_internal_domain_models.Participant:
+    properties:
+      block_item_id:
+        example: 1
+        type: integer
+      created_at:
+        type: string
+      id:
+        example: 1
+        type: integer
+      name:
+        example: John Doe
+        type: string
+      requirements:
+        example: Needs microphone
+        type: string
+      role:
+        example: performer
+        type: string
+      updated_at:
+        type: string
+    type: object
+  cor-events-scheduler_internal_domain_models.PublicSchedule:
+    properties:
+      date:
+        example: "2024-07-01T00:00:00Z"
+        type: string
+      event_name:
+        example: Summer Music Festival
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.PublicScheduleItem'
+        type: array
+    type: object
+  cor-events-scheduler_internal_domain_models.PublicScheduleItem:
+    properties:
+      description:
+        example: Exciting show on the main stage
+        type: string
+      sub_items:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.PublicScheduleSubItem'
+        type: array
+      time:
+        example: "2024-07-01T14:00:00Z"
+        type: string
+      title:
+        example: Main Performance
+        type: string
+    type: object
+  cor-events-scheduler_internal_domain_models.PublicScheduleSubItem:
+    properties:
+      description:
+        example: Opening performance
+        type: string
+      time:
+        example: "2024-07-01T14:30:00Z"
+        type: string
+      title:
+        example: Opening Act
+        type: string
+    type: object
+  cor-events-scheduler_internal_domain_models.RiskFactor:
+    properties:
+      block_id:
+        example: 1
+        type: integer
+      id:
+        example: 1
+        type: integer
+      impact:
+        example: 0.7
+        type: number
+      mitigation:
+        example: Have backup indoor venue
+        type: string
+      probability:
+        example: 0.3
+        type: number
+      type:
+        example: weather
+        type: string
+    type: object
+  cor-events-scheduler_internal_domain_models.Schedule:
+    properties:
+      blocks:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Block'
+        type: array
+      buffer_time:
+        example: 30
+        type: integer
+      created_at:
+        type: string
+      description:
+        example: Three day music festival
+        type: string
+      end_date:
+        example: "2024-07-03T22:00:00Z"
+        type: string
+      event_id:
+        example: 1
+        type: integer
+      id:
+        example: 1
+        type: integer
+      name:
+        example: Summer Music Festival 2024
+        type: string
+      risk_score:
+        example: 0.35
+        type: number
+      start_date:
+        example: "2024-07-01T10:00:00Z"
+        type: string
+      total_duration:
+        example: 480
+        type: integer
+      updated_at:
+        type: string
+    required:
+    - end_date
+    - name
+    - start_date
+    type: object
+  cor-events-scheduler_internal_domain_models.VolunteerSchedule:
+    properties:
+      date:
+        example: "2024-07-01T00:00:00Z"
+        type: string
+      event_name:
+        example: Summer Music Festival
+        type: string
+      items:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.VolunteerScheduleItem'
+        type: array
+      notes:
+        example:
+        - '["Wear volunteer badge"'
+        - '"Follow safety guidelines"]'
+        items:
+          type: string
+        type: array
+    type: object
+  cor-events-scheduler_internal_domain_models.VolunteerScheduleItem:
+    properties:
+      break_duration:
+        example: 15
+        type: integer
+      equipment:
+        example:
+        - '["Microphones"'
+        - '"Speakers"]'
+        items:
+          type: string
+        type: array
+      instructions:
+        example: Help with equipment setup
+        type: string
+      location:
+        example: Main Stage
+        type: string
+      required_staff:
+        example: 5
+        type: integer
+      setup_notes:
+        example: Check all connections
+        type: string
+      tech_break:
+        example: false
+        type: boolean
+      time:
+        example: "2024-07-01T13:00:00Z"
+        type: string
+      title:
+        example: Stage Setup
+        type: string
+    type: object
+  internal_handlers.AnalysisResponse:
+    properties:
+      optimized_schedule:
+        $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+      recommendations:
+        items:
+          type: string
+        type: array
+      risk_score:
+        type: number
+      schedule:
+        $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+      time_analysis:
+        items:
+          additionalProperties: true
+          type: object
+        type: array
+    type: object
+  internal_handlers.ErrorResponse:
+    properties:
+      details:
+        type: string
+      error:
+        type: string
+    type: object
+  internal_handlers.ListSchedulesResponse:
+    properties:
+      data:
+        items:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+        type: array
+      meta:
+        properties:
+          page:
+            type: integer
+          page_size:
+            type: integer
+          total:
+            type: integer
+        type: object
+    type: object
+  internal_handlers.OptimizationResponse:
+    properties:
+      improvements:
+        additionalProperties: true
+        type: object
+      optimized_schedule:
+        $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+      original_schedule:
+        $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+    type: object
+host: localhost:8282
+info:
+  contact:
+    email: support@swagger.io
+    name: API Support
+    url: http://www.swagger.io/support
+  description: Service for managing event schedules with risk analysis and optimization
+  license:
+    name: Apache 2.0
+    url: http://www.apache.org/licenses/LICENSE-2.0.html
+  termsOfService: http://swagger.io/terms/
+  title: Event Scheduler API
+  version: "1.0"
+paths:
+  /schedules:
+    get:
+      consumes:
+      - application/json
+      description: Get a paginated list of schedules
+      parameters:
+      - default: 1
+        description: Page number
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: Items per page
+        in: query
+        name: page_size
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.ListSchedulesResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: List all schedules
+      tags:
+      - schedules
+    post:
+      consumes:
+      - application/json
+      description: Create a new event schedule with blocks and items
+      parameters:
+      - description: Schedule object
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Create a new schedule
+      tags:
+      - schedules
+  /schedules/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: Delete a schedule by its ID
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "204":
+          description: No Content
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Delete a schedule
+      tags:
+      - schedules
+    get:
+      consumes:
+      - application/json
+      description: Get detailed information about a specific schedule
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Get a schedule by ID
+      tags:
+      - schedules
+    put:
+      consumes:
+      - application/json
+      description: Update an existing schedule's information
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Updated schedule object
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Update a schedule
+      tags:
+      - schedules
+  /schedules/{id}/public:
+    get:
+      consumes:
+      - application/json
+      description: Get a formatted public version of a schedule
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - default: json
+        description: Output format (json or text)
+        enum:
+        - json
+        - text
+        in: query
+        name: format
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: When format=text
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Get public schedule
+      tags:
+      - schedules
+  /schedules/{id}/volunteer:
+    get:
+      consumes:
+      - application/json
+      description: Get a formatted version of a schedule for volunteers
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cor-events-scheduler_internal_domain_models.VolunteerSchedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Get volunteer schedule
+      tags:
+      - schedules
+  /schedules/analyze:
+    post:
+      consumes:
+      - application/json
+      description: Analyze potential risks and get recommendations for a schedule
+      parameters:
+      - description: Schedule to analyze
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.AnalysisResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Analyze schedule risks
+      tags:
+      - schedules
+  /schedules/optimize:
+    post:
+      consumes:
+      - application/json
+      description: Optimize a schedule to minimize risks and improve efficiency
+      parameters:
+      - description: Schedule to optimize
+        in: body
+        name: schedule
+        required: true
+        schema:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/internal_handlers.OptimizationResponse'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Optimize schedule
+      tags:
+      - schedules
+swagger: "2.0"
