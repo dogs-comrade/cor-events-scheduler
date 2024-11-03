@@ -144,28 +144,28 @@ jobs:
          
      - name: Deploy base manifests
        run: |
-           # Создаем временный файл для измененного deployment
-           cp k8s/base/deployment.yaml k8s/base/deployment-temp.yaml
-           
-           # Заменяем переменные в временном файле
-           sed -i "s|\${DOCKER_REGISTRY}|${{ env.DOCKER_REGISTRY }}|g" k8s/base/deployment-temp.yaml
-           sed -i "s|\${TAG}|${{ github.sha }}|g" k8s/base/deployment-temp.yaml
-           
-           # Проверяем результат замены
-           echo "Checking deployment file after variable substitution:"
-           cat k8s/base/deployment-temp.yaml
-           
-           # Применяем ConfigMap
-           kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
-           
-           # Применяем Service
-           kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
-   
-           # Применяем измененный Deployment
-           kubectl apply -f k8s/base/deployment-temp.yaml -n ${{ env.NAMESPACE }}
-   
-           # Удаляем временный файл
-           rm k8s/base/deployment-temp.yaml
+             # Create temporary file for modified deployment
+             cp k8s/base/deployment.yaml k8s/base/deployment-temp.yaml
+             
+             # Replace variables in temporary file using the correct environment variables
+             sed -i "s|\${DOCKER_REGISTRY}|${{ env.REGISTRY }}|g" k8s/base/deployment-temp.yaml
+             sed -i "s|\${TAG}|sha-${{ github.sha }}|g" k8s/base/deployment-temp.yaml
+             
+             # Check the result of substitution
+             echo "Checking deployment file after variable substitution:"
+             cat k8s/base/deployment-temp.yaml
+             
+             # Apply ConfigMap
+             kubectl apply -f k8s/base/config.yaml -n ${{ env.NAMESPACE }}
+             
+             # Apply Service
+             kubectl apply -f k8s/base/service.yaml -n ${{ env.NAMESPACE }}
+     
+             # Apply modified Deployment
+             kubectl apply -f k8s/base/deployment-temp.yaml -n ${{ env.NAMESPACE }}
+     
+             # Clean up temporary file
+             rm k8s/base/deployment-temp.yaml
    
      - name: Wait for deployment
        run: |
