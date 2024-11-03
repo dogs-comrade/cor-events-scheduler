@@ -83,6 +83,15 @@ jobs:
         run: |
           kubectl create namespace ${{ env.NAMESPACE }} --dry-run=client -o yaml | kubectl apply -f -
           
+      - name: Create Docker Registry Secret
+        run: |
+          kubectl create secret docker-registry regcred \
+            --docker-server=${{ env.REGISTRY }} \
+            --docker-username=${{ github.actor }} \
+            --docker-password=${{ secrets.GITHUB_TOKEN }} \
+            --docker-email=<your-email> \
+            --namespace=${{ env.NAMESPACE }}
+          
       - name: Update Secrets
         run: |
           cat <<EOF | kubectl apply -f -
