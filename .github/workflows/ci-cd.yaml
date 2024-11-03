@@ -80,7 +80,7 @@ jobs:
             --docker-server=${{ env.REGISTRY }} \
             --docker-username=${{ github.actor }} \
             --docker-password=${{ secrets.GITHUB_TOKEN }} \
-            --docker-email=<your-email> \
+            --docker-email=${{ secrets.DOCKER_EMAIL }} \
             --namespace=${{ env.NAMESPACE }}
           
       - name: Update Secrets
