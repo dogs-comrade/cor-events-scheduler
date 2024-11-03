@@ -19,19 +19,47 @@ jobs:
    runs-on: ubuntu-latest
    steps:
      - uses: actions/checkout@v4
+     
+     # Кэширование зависимостей Go
+     - name: Go Cache
+       uses: actions/cache@v3
+       with:
+         path: |
+           ~/.cache/go-build
+           ~/go/pkg/mod
+         key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+         restore-keys: |
+           ${{ runner.os }}-go-
+           
      - name: Set up Go
        uses: actions/setup-go@v4
        with:
          go-version: '1.21'
+         
      - name: Run tests
        run: go test -v ./...
 
  build:
    needs: test
    runs-on: ubuntu-latest
+   outputs:
+     image_tags: ${{ steps.meta.outputs.tags }}
+     image_sha: ${{ steps.sha_tag.outputs.tag }}
    steps:
      - name: Checkout repository
        uses: actions/checkout@v4
+       
+     # Кэширование слоев Docker
+     - name: Set up Docker Buildx
+       uses: docker/setup-buildx-action@v3
+       
+     - name: Cache Docker layers
+       uses: actions/cache@v3
+       with:
+         path: /tmp/.buildx-cache
+         key: ${{ runner.os }}-buildx-${{ github.sha }}
+         restore-keys: |
+           ${{ runner.os }}-buildx-
        
      - name: Log in to the Container registry
        uses: docker/login-action@v3
@@ -50,13 +78,30 @@ jobs:
            type=ref,event=branch
            type=semver,pattern={{version}}
            
+     # Создаем отдельный SHA тег для использования в деплое
+     - name: Generate SHA tag
+       id: sha_tag
+       run: |
+         SHA_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+         echo "tag=${SHA_TAG}" >> $GITHUB_OUTPUT
+           
      - name: Build and push Docker image
        uses: docker/build-push-action@v5
        with:
          context: .
          push: true
-         tags: ${{ steps.meta.outputs.tags }}
+         tags: |
+           ${{ steps.meta.outputs.tags }}
+           ${{ steps.sha_tag.outputs.tag }}
          labels: ${{ steps.meta.outputs.labels }}
+         cache-from: type=local,src=/tmp/.buildx-cache
+         cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+     # Очистка кэша для избежания его разрастания
+     - name: Move cache
+       run: |
+         rm -rf /tmp/.buildx-cache
+         mv /tmp/.buildx-cache-new /tmp/.buildx-cache
 
  deploy:
    needs: build
@@ -99,10 +144,11 @@ jobs:
          
      - name: Deploy manifests
        run: |
+         # Используем SHA тег для деплоя
+         IMAGE_WITH_SHA="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}"
+         
          # Заменяем переменные в deployment.yaml
-         sed -i "s|\${REGISTRY}|$REGISTRY|g" k8s/base/deployment.yaml
-         sed -i "s|\${IMAGE_NAME}|$IMAGE_NAME|g" k8s/base/deployment.yaml
-         sed -i "s|\${TAG}|${{ github.sha }}|g" k8s/base/deployment.yaml
+         sed -i "s|${REGISTRY}/${IMAGE_NAME}:.*|${IMAGE_WITH_SHA}|g" k8s/base/deployment.yaml
          
          # Применяем все манифесты
          kubectl apply -f k8s/base/deployment.yaml -n ${{ env.NAMESPACE }}
