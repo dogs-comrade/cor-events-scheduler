@@ -1,3 +1,4 @@
+// schedule.go
 package models
 
 import (
@@ -10,8 +11,8 @@ import (
 
 type Schedule struct {
 	ID            uint           `json:"id" gorm:"primarykey"`
-	EventID       uint           `json:"event_id"`
-	Event         Event          `json:"event" gorm:"foreignKey:EventID"`
+	EventID       uint           `json:"event_id" gorm:"not null"`
+	Event         Event          `json:"event" gorm:"foreignKey:EventID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
 	Name          string         `json:"name" gorm:"not null"`
 	Description   string         `json:"description"`
 	StartDate     time.Time      `json:"start_date" gorm:"not null"`

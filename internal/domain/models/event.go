@@ -1,3 +1,4 @@
+// event.go
 package models
 
 import (
@@ -19,4 +20,5 @@ type Event struct {
 	CreatedAt        time.Time      `json:"created_at"`
 	UpdatedAt        time.Time      `json:"updated_at"`
 	DeletedAt        gorm.DeletedAt `json:"-" gorm:"index"`
+	Schedules        []Schedule     `json:"schedules" gorm:"foreignKey:EventID"`
 }
