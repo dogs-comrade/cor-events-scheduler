@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: events-scheduler
-        image: ${DOCKER_REGISTRY}/cor-events-scheduler:${TAG}
+        image: ${DOCKER_REGISTRY}/dogs-comrade/cor-events-scheduler:${TAG}
         resources:
           limits:
             cpu: "200m"
