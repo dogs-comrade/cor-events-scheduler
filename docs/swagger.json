@@ -15,7 +15,7 @@
         },
         "version": "1.0"
     },
-    "host": "localhost:8282",
+    "host": "scheduler.xilonen.ru",
     "basePath": "/api/v1",
     "paths": {
         "/events": {

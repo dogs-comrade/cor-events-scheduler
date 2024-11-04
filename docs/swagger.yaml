@@ -353,7 +353,7 @@ definitions:
       original_schedule:
         $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
     type: object
-host: localhost:8282
+host: scheduler.xilonen.ru
 info:
   contact:
     email: support@swagger.io
