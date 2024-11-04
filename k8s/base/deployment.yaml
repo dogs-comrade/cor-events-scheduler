@@ -5,7 +5,7 @@ metadata:
   labels:
     app: events-scheduler
 spec:
-  replicas: 3
+  replicas: 4
   selector:
     matchLabels:
       app: events-scheduler
@@ -19,8 +19,8 @@ spec:
         image: ${DOCKER_REGISTRY}/dogs-comrade/cor-events-scheduler:${TAG}
         resources:
           limits:
-            cpu: "200m"
-            memory: "256Mi"
+            cpu: "100m"
+            memory: "128Mi"
           requests:
             cpu: "50m"
             memory: "64Mi"
