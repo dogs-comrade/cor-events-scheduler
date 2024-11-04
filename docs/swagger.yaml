@@ -3,7 +3,6 @@ definitions:
   cor-events-scheduler_internal_domain_models.Block:
     properties:
       complexity:
-        example: 0.7
         type: number
       created_at:
         type: string
@@ -12,92 +11,69 @@ definitions:
           type: integer
         type: array
       duration:
-        example: 120
-        minimum: 1
         type: integer
       equipment:
         items:
           $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Equipment'
         type: array
       id:
-        example: 1
         type: integer
       items:
         items:
           $ref: '#/definitions/cor-events-scheduler_internal_domain_models.BlockItem'
         type: array
       location:
-        example: Main Stage
         type: string
       max_participants:
-        example: 1000
         type: integer
       name:
-        example: Main Stage Performance
         type: string
       order:
-        example: 1
         type: integer
       required_staff:
-        example: 10
         type: integer
       risk_factors:
         items:
           $ref: '#/definitions/cor-events-scheduler_internal_domain_models.RiskFactor'
         type: array
       schedule_id:
-        example: 1
         type: integer
       start_time:
-        example: "2024-07-01T14:00:00Z"
         type: string
       tech_break_duration:
-        example: 30
         type: integer
       type:
-        example: performance
         type: string
       updated_at:
         type: string
-    required:
-    - duration
-    - name
     type: object
   cor-events-scheduler_internal_domain_models.BlockItem:
     properties:
       block_id:
-        example: 1
         type: integer
       created_at:
         type: string
       description:
-        example: Live performance by the main band
         type: string
       duration:
-        example: 45
         type: integer
       equipment:
         items:
           $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Equipment'
         type: array
       id:
-        example: 1
         type: integer
       name:
-        example: Band Performance
         type: string
       order:
-        example: 1
         type: integer
       participants:
         items:
           $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Participant'
         type: array
       requirements:
-        example: Stage lighting, sound system
         type: string
       type:
-        example: performance
         type: string
       updated_at:
         type: string
@@ -105,43 +81,58 @@ definitions:
   cor-events-scheduler_internal_domain_models.Equipment:
     properties:
       complexity_score:
-        example: 0.8
         type: number
       created_at:
         type: string
       id:
-        example: 1
         type: integer
       name:
-        example: Sound System
         type: string
       setup_time:
-        example: 30
         type: integer
       type:
-        example: audio
         type: string
       updated_at:
         type: string
     type: object
+  cor-events-scheduler_internal_domain_models.Event:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      end_date:
+        type: string
+      event_type:
+        type: string
+      expected_capacity:
+        type: integer
+      id:
+        type: integer
+      name:
+        type: string
+      start_date:
+        type: string
+      updated_at:
+        type: string
+      venue:
+        $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Venue'
+      venue_id:
+        type: integer
+    type: object
   cor-events-scheduler_internal_domain_models.Participant:
     properties:
       block_item_id:
-        example: 1
         type: integer
       created_at:
         type: string
       id:
-        example: 1
         type: integer
       name:
-        example: John Doe
         type: string
       requirements:
-        example: Needs microphone
         type: string
       role:
-        example: performer
         type: string
       updated_at:
         type: string
@@ -190,22 +181,16 @@ definitions:
   cor-events-scheduler_internal_domain_models.RiskFactor:
     properties:
       block_id:
-        example: 1
         type: integer
       id:
-        example: 1
         type: integer
       impact:
-        example: 0.7
         type: number
       mitigation:
-        example: Have backup indoor venue
         type: string
       probability:
-        example: 0.3
         type: number
       type:
-        example: weather
         type: string
     type: object
   cor-events-scheduler_internal_domain_models.Schedule:
@@ -215,40 +200,53 @@ definitions:
           $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Block'
         type: array
       buffer_time:
-        example: 30
         type: integer
       created_at:
         type: string
       description:
-        example: Three day music festival
         type: string
       end_date:
-        example: "2024-07-03T22:00:00Z"
         type: string
+      event:
+        $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Event'
       event_id:
-        example: 1
         type: integer
       id:
-        example: 1
         type: integer
       name:
-        example: Summer Music Festival 2024
         type: string
       risk_score:
-        example: 0.35
         type: number
       start_date:
-        example: "2024-07-01T10:00:00Z"
         type: string
       total_duration:
-        example: 480
         type: integer
       updated_at:
         type: string
-    required:
-    - end_date
-    - name
-    - start_date
+    type: object
+  cor-events-scheduler_internal_domain_models.Venue:
+    properties:
+      capacity:
+        type: integer
+      created_at:
+        type: string
+      id:
+        type: integer
+      loading_difficulty:
+        type: number
+      name:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  cor-events-scheduler_internal_domain_models.VersionMetadata:
+    properties:
+      changes:
+        type: string
+      created_at:
+        type: string
+      version:
+        type: integer
     type: object
   cor-events-scheduler_internal_domain_models.VolunteerSchedule:
     properties:
@@ -369,6 +367,28 @@ info:
   title: Event Scheduler API
   version: "1.0"
 paths:
+  /events:
+    post:
+      consumes:
+      - application/json
+      description: Create a new event
+      parameters:
+      - description: Event object
+        in: body
+        name: event
+        required: true
+        schema:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Event'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Event'
+      summary: Create new event
+      tags:
+      - events
   /schedules:
     get:
       consumes:
@@ -562,6 +582,75 @@ paths:
       summary: Get public schedule
       tags:
       - schedules
+  /schedules/{id}/versions:
+    get:
+      consumes:
+      - application/json
+      description: Get the version history of a schedule
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            items:
+              $ref: '#/definitions/cor-events-scheduler_internal_domain_models.VersionMetadata'
+            type: array
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "404":
+          description: Not Found
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Get schedule version history
+      tags:
+      - versions
+  /schedules/{id}/versions/{version}/restore:
+    post:
+      consumes:
+      - application/json
+      description: Restore a specific version of a schedule
+      parameters:
+      - description: Schedule ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Version number
+        in: path
+        name: version
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Schedule'
+        "400":
+          description: Bad Request
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/internal_handlers.ErrorResponse'
+      summary: Restore schedule version
+      tags:
+      - versions
   /schedules/{id}/volunteer:
     get:
       consumes:
@@ -655,4 +744,26 @@ paths:
       summary: Optimize schedule
       tags:
       - schedules
+  /venues:
+    post:
+      consumes:
+      - application/json
+      description: Create a new venue
+      parameters:
+      - description: Venue object
+        in: body
+        name: venue
+        required: true
+        schema:
+          $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Venue'
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/cor-events-scheduler_internal_domain_models.Venue'
+      summary: Create new venue
+      tags:
+      - venues
 swagger: "2.0"

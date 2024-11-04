@@ -2,6 +2,7 @@
 package handlers
 
 import (
+	"cor-events-scheduler/internal/domain/models"
 	"cor-events-scheduler/internal/services"
 	"net/http"
 	"strconv"
@@ -30,12 +31,16 @@ func NewVersionHandler(versionService *services.VersionService, logger *zap.Logg
 // @Param id path int true "Schedule ID"
 // @Success 200 {array} models.VersionMetadata
 // @Failure 400 {object} ErrorResponse
+// @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
 // @Router /schedules/{id}/versions [get]
 func (h *VersionHandler) GetVersionHistory(c *gin.Context) {
 	scheduleID, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		h.logger.Error("Invalid schedule ID format", zap.Error(err))
+		h.logger.Error("Invalid schedule ID format",
+			zap.Error(err),
+			zap.String("schedule_id", c.Param("id")),
+		)
 		c.JSON(http.StatusBadRequest, ErrorResponse{
 			Error: "Invalid schedule ID format",
 		})
@@ -48,12 +53,31 @@ func (h *VersionHandler) GetVersionHistory(c *gin.Context) {
 			zap.Error(err),
 			zap.Uint64("schedule_id", scheduleID),
 		)
+
+		// Check if it's a not found error
+		if err.Error() == "record not found" {
+			c.JSON(http.StatusNotFound, ErrorResponse{
+				Error: "Schedule not found",
+			})
+			return
+		}
+
 		c.JSON(http.StatusInternalServerError, ErrorResponse{
 			Error:   "Failed to get version history",
 			Details: err.Error(),
 		})
 		return
 	}
+
+	// If no versions found, return empty array instead of null
+	if versions == nil {
+		versions = []models.VersionMetadata{}
+	}
+
+	h.logger.Debug("Retrieved version history",
+		zap.Uint64("schedule_id", scheduleID),
+		zap.Int("version_count", len(versions)),
+	)
 
 	c.JSON(http.StatusOK, versions)
 }

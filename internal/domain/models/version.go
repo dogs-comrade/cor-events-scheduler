@@ -20,7 +20,6 @@ type ScheduleVersion struct {
 type VersionMetadata struct {
 	Version   int       `json:"version"`
 	CreatedAt time.Time `json:"created_at"`
-	CreatedBy string    `json:"created_by"`
 	Changes   string    `json:"changes"`
 }
 

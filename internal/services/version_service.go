@@ -94,7 +94,6 @@ func (s *VersionService) GetVersionHistory(ctx context.Context, scheduleID uint)
 		metadata[i] = models.VersionMetadata{
 			Version:   v.Version,
 			CreatedAt: v.CreatedAt,
-			CreatedBy: v.CreatedBy,
 			Changes:   v.Changes,
 		}
 	}

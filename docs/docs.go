@@ -24,6 +24,40 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/events": {
+            "post": {
+                "description": "Create a new event",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "events"
+                ],
+                "summary": "Create new event",
+                "parameters": [
+                    {
+                        "description": "Event object",
+                        "name": "event",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/cor-events-scheduler_internal_domain_models.Event"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/cor-events-scheduler_internal_domain_models.Event"
+                        }
+                    }
+                }
+            }
+        },
         "/schedules": {
             "get": {
                 "description": "Get a paginated list of schedules",
@@ -406,6 +440,110 @@ const docTemplate = `{
                 }
             }
         },
+        "/schedules/{id}/versions": {
+            "get": {
+                "description": "Get the version history of a schedule",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "versions"
+                ],
+                "summary": "Get schedule version history",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/cor-events-scheduler_internal_domain_models.VersionMetadata"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/schedules/{id}/versions/{version}/restore": {
+            "post": {
+                "description": "Restore a specific version of a schedule",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "versions"
+                ],
+                "summary": "Restore schedule version",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Schedule ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Version number",
+                        "name": "version",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/cor-events-scheduler_internal_domain_models.Schedule"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/internal_handlers.ErrorResponse"
+                        }
+                    }
+                }
+            }
+        },
         "/schedules/{id}/volunteer": {
             "get": {
                 "description": "Get a formatted version of a schedule for volunteers",
@@ -455,19 +593,48 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/venues": {
+            "post": {
+                "description": "Create a new venue",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "venues"
+                ],
+                "summary": "Create new venue",
+                "parameters": [
+                    {
+                        "description": "Venue object",
+                        "name": "venue",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/cor-events-scheduler_internal_domain_models.Venue"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/cor-events-scheduler_internal_domain_models.Venue"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
         "cor-events-scheduler_internal_domain_models.Block": {
             "type": "object",
-            "required": [
-                "duration",
-                "name"
-            ],
             "properties": {
                 "complexity": {
-                    "type": "number",
-                    "example": 0.7
+                    "type": "number"
                 },
                 "created_at": {
                     "type": "string"
@@ -479,9 +646,7 @@ const docTemplate = `{
                     }
                 },
                 "duration": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "example": 120
+                    "type": "integer"
                 },
                 "equipment": {
                     "type": "array",
@@ -490,8 +655,7 @@ const docTemplate = `{
                     }
                 },
                 "id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "items": {
                     "type": "array",
@@ -500,24 +664,19 @@ const docTemplate = `{
                     }
                 },
                 "location": {
-                    "type": "string",
-                    "example": "Main Stage"
+                    "type": "string"
                 },
                 "max_participants": {
-                    "type": "integer",
-                    "example": 1000
+                    "type": "integer"
                 },
                 "name": {
-                    "type": "string",
-                    "example": "Main Stage Performance"
+                    "type": "string"
                 },
                 "order": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "required_staff": {
-                    "type": "integer",
-                    "example": 10
+                    "type": "integer"
                 },
                 "risk_factors": {
                     "type": "array",
@@ -526,20 +685,16 @@ const docTemplate = `{
                     }
                 },
                 "schedule_id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "start_time": {
-                    "type": "string",
-                    "example": "2024-07-01T14:00:00Z"
+                    "type": "string"
                 },
                 "tech_break_duration": {
-                    "type": "integer",
-                    "example": 30
+                    "type": "integer"
                 },
                 "type": {
-                    "type": "string",
-                    "example": "performance"
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "string"
@@ -550,19 +705,16 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "block_id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "created_at": {
                     "type": "string"
                 },
                 "description": {
-                    "type": "string",
-                    "example": "Live performance by the main band"
+                    "type": "string"
                 },
                 "duration": {
-                    "type": "integer",
-                    "example": 45
+                    "type": "integer"
                 },
                 "equipment": {
                     "type": "array",
@@ -571,16 +723,13 @@ const docTemplate = `{
                     }
                 },
                 "id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "name": {
-                    "type": "string",
-                    "example": "Band Performance"
+                    "type": "string"
                 },
                 "order": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "participants": {
                     "type": "array",
@@ -589,12 +738,10 @@ const docTemplate = `{
                     }
                 },
                 "requirements": {
-                    "type": "string",
-                    "example": "Stage lighting, sound system"
+                    "type": "string"
                 },
                 "type": {
-                    "type": "string",
-                    "example": "performance"
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "string"
@@ -605,30 +752,63 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "complexity_score": {
-                    "type": "number",
-                    "example": 0.8
+                    "type": "number"
                 },
                 "created_at": {
                     "type": "string"
                 },
                 "id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "name": {
-                    "type": "string",
-                    "example": "Sound System"
+                    "type": "string"
                 },
                 "setup_time": {
-                    "type": "integer",
-                    "example": 30
+                    "type": "integer"
                 },
                 "type": {
-                    "type": "string",
-                    "example": "audio"
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "cor-events-scheduler_internal_domain_models.Event": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "end_date": {
+                    "type": "string"
+                },
+                "event_type": {
+                    "type": "string"
+                },
+                "expected_capacity": {
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "start_date": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "venue": {
+                    "$ref": "#/definitions/cor-events-scheduler_internal_domain_models.Venue"
+                },
+                "venue_id": {
+                    "type": "integer"
                 }
             }
         },
@@ -636,27 +816,22 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "block_item_id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "created_at": {
                     "type": "string"
                 },
                 "id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "name": {
-                    "type": "string",
-                    "example": "John Doe"
+                    "type": "string"
                 },
                 "requirements": {
-                    "type": "string",
-                    "example": "Needs microphone"
+                    "type": "string"
                 },
                 "role": {
-                    "type": "string",
-                    "example": "performer"
+                    "type": "string"
                 },
                 "updated_at": {
                     "type": "string"
@@ -726,38 +901,27 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "block_id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "impact": {
-                    "type": "number",
-                    "example": 0.7
+                    "type": "number"
                 },
                 "mitigation": {
-                    "type": "string",
-                    "example": "Have backup indoor venue"
+                    "type": "string"
                 },
                 "probability": {
-                    "type": "number",
-                    "example": 0.3
+                    "type": "number"
                 },
                 "type": {
-                    "type": "string",
-                    "example": "weather"
+                    "type": "string"
                 }
             }
         },
         "cor-events-scheduler_internal_domain_models.Schedule": {
             "type": "object",
-            "required": [
-                "end_date",
-                "name",
-                "start_date"
-            ],
             "properties": {
                 "blocks": {
                     "type": "array",
@@ -766,46 +930,77 @@ const docTemplate = `{
                     }
                 },
                 "buffer_time": {
-                    "type": "integer",
-                    "example": 30
+                    "type": "integer"
                 },
                 "created_at": {
                     "type": "string"
                 },
                 "description": {
-                    "type": "string",
-                    "example": "Three day music festival"
+                    "type": "string"
                 },
                 "end_date": {
-                    "type": "string",
-                    "example": "2024-07-03T22:00:00Z"
+                    "type": "string"
+                },
+                "event": {
+                    "$ref": "#/definitions/cor-events-scheduler_internal_domain_models.Event"
                 },
                 "event_id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "id": {
-                    "type": "integer",
-                    "example": 1
+                    "type": "integer"
                 },
                 "name": {
-                    "type": "string",
-                    "example": "Summer Music Festival 2024"
+                    "type": "string"
                 },
                 "risk_score": {
-                    "type": "number",
-                    "example": 0.35
+                    "type": "number"
                 },
                 "start_date": {
-                    "type": "string",
-                    "example": "2024-07-01T10:00:00Z"
+                    "type": "string"
                 },
                 "total_duration": {
-                    "type": "integer",
-                    "example": 480
+                    "type": "integer"
                 },
                 "updated_at": {
                     "type": "string"
+                }
+            }
+        },
+        "cor-events-scheduler_internal_domain_models.Venue": {
+            "type": "object",
+            "properties": {
+                "capacity": {
+                    "type": "integer"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "loading_difficulty": {
+                    "type": "number"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "cor-events-scheduler_internal_domain_models.VersionMetadata": {
+            "type": "object",
+            "properties": {
+                "changes": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "integer"
                 }
             }
         },
