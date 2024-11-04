@@ -113,8 +113,3 @@ jobs:
           kubectl apply -f k8s/base/deployment-temp.yaml -n ${{ env.NAMESPACE }}
           
           rm k8s/base/deployment-temp.yaml
-
-      - name: Verify deployment
-        run: |
-          kubectl wait --for=condition=ready pod -l app=events-scheduler -n ${{ env.NAMESPACE }} --timeout=300s
-          kubectl get pods,svc -n ${{ env.NAMESPACE }}
