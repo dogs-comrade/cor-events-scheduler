@@ -1,93 +1,50 @@
-// schedule.go
+// internal/domain/models/schedule.go
 package models
 
 import (
 	"errors"
 	"time"
 
-	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
 type Schedule struct {
-	ID            uint           `json:"id" gorm:"primarykey"`
-	EventID       uint           `json:"event_id" gorm:"not null"`
-	Event         Event          `json:"event" gorm:"foreignKey:EventID;constraint:OnUpdate:CASCADE,OnDelete:SET NULL;"`
-	Name          string         `json:"name" gorm:"not null"`
-	Description   string         `json:"description"`
-	StartDate     time.Time      `json:"start_date" gorm:"not null"`
-	EndDate       time.Time      `json:"end_date" gorm:"not null"`
-	Blocks        []Block        `json:"blocks"`
-	RiskScore     float64        `json:"risk_score"`
-	BufferTime    int            `json:"buffer_time"`
-	TotalDuration int            `json:"total_duration"`
-	CreatedAt     time.Time      `json:"created_at"`
-	UpdatedAt     time.Time      `json:"updated_at"`
-	DeletedAt     gorm.DeletedAt `json:"-" gorm:"index"`
+	ID        uint           `json:"id" gorm:"primarykey;autoIncrement"`
+	Name      string         `json:"name" gorm:"not null"`
+	StartDate time.Time      `json:"start_date" gorm:"not null"`
+	EndDate   time.Time      `json:"end_date" gorm:"not null"`
+	Blocks    []Block        `json:"blocks" gorm:"foreignKey:ScheduleID;constraint:OnDelete:CASCADE"`
+	CreatedAt time.Time      `json:"created_at"`
+	UpdatedAt time.Time      `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
-// internal/domain/models/schedule.go
-
 type Block struct {
-	ID                uint           `json:"id" gorm:"primarykey"`
-	ScheduleID        uint           `json:"schedule_id"`
-	Schedule          Schedule       `json:"-" gorm:"foreignKey:ScheduleID"`
+	ID                uint           `json:"id" gorm:"primarykey;autoIncrement"`
+	ScheduleID        uint           `json:"schedule_id" gorm:"not null"`
 	Name              string         `json:"name" gorm:"not null"`
 	Type              string         `json:"type"`
 	StartTime         time.Time      `json:"start_time"`
 	Duration          int            `json:"duration" gorm:"not null"`
 	TechBreakDuration int            `json:"tech_break_duration"`
-	Equipment         []Equipment    `gorm:"many2many:block_equipment;" json:"equipment"`
-	Complexity        float64        `json:"complexity"`
-	MaxParticipants   int            `json:"max_participants"`
-	RequiredStaff     int            `json:"required_staff"`
-	Location          string         `json:"location"`
-	Items             []BlockItem    `json:"items"`
-	Dependencies      pq.Int64Array  `gorm:"type:integer[]" json:"dependencies"`
-	RiskFactors       []RiskFactor   `gorm:"serializer:json" json:"risk_factors"`
-	Order             int            `json:"order"`
+	Items             []BlockItem    `json:"items" gorm:"foreignKey:BlockID;constraint:OnDelete:CASCADE"`
+	Order             int            `json:"order" gorm:"not null"`
 	CreatedAt         time.Time      `json:"created_at"`
 	UpdatedAt         time.Time      `json:"updated_at"`
 	DeletedAt         gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 type BlockItem struct {
-	ID           uint           `json:"id" gorm:"primarykey"`
-	BlockID      uint           `json:"block_id"`
-	Block        Block          `json:"-" gorm:"foreignKey:BlockID"`
-	Type         string         `json:"type"`
-	Name         string         `json:"name" gorm:"not null"`
-	Description  string         `json:"description"`
-	Duration     int            `json:"duration"`
-	Equipment    []Equipment    `gorm:"many2many:block_item_equipment;" json:"equipment"`
-	Participants []Participant  `json:"participants"`
-	Requirements string         `json:"requirements"`
-	Order        int            `json:"order"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
-	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index"`
-}
-
-type Participant struct {
-	ID           uint           `json:"id" gorm:"primarykey"`
-	Name         string         `json:"name" gorm:"not null"`
-	Role         string         `json:"role"`
-	BlockItemID  uint           `json:"block_item_id"`
-	BlockItem    BlockItem      `json:"-" gorm:"foreignKey:BlockItemID"`
-	Requirements string         `json:"requirements"`
-	CreatedAt    time.Time      `json:"created_at"`
-	UpdatedAt    time.Time      `json:"updated_at"`
-	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index"`
-}
-
-type RiskFactor struct {
-	ID          uint    `json:"id" gorm:"primarykey"`
-	BlockID     uint    `json:"block_id"`
-	Block       Block   `json:"-" gorm:"foreignKey:BlockID"`
-	Type        string  `json:"type"`
-	Probability float64 `json:"probability"`
-	Impact      float64 `json:"impact"`
-	Mitigation  string  `json:"mitigation"`
+	ID          uint           `json:"id" gorm:"primarykey;autoIncrement"`
+	BlockID     uint           `json:"block_id" gorm:"not null"`
+	Name        string         `json:"name" gorm:"not null"`
+	Type        string         `json:"type"`
+	Description string         `json:"description"`
+	Duration    int            `json:"duration" gorm:"not null"`
+	Order       int            `json:"order" gorm:"not null"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 func (b *Block) EndTime() time.Time {

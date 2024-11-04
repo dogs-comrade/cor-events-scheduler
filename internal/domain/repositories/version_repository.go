@@ -2,6 +2,7 @@ package repositories
 
 import (
 	"context"
+	"fmt"
 
 	"cor-events-scheduler/internal/domain/models"
 
@@ -16,38 +17,33 @@ func NewVersionRepository(db *gorm.DB) *VersionRepository {
 	return &VersionRepository{db: db}
 }
 
+// CreateVersion создает новую версию расписания
 func (r *VersionRepository) CreateVersion(ctx context.Context, version *models.ScheduleVersion) error {
 	return r.db.WithContext(ctx).Create(version).Error
 }
 
-func (r *VersionRepository) GetVersion(ctx context.Context, scheduleID uint, version int) (*models.ScheduleVersion, error) {
-	var scheduleVersion models.ScheduleVersion
-	err := r.db.WithContext(ctx).
-		Where("schedule_id = ? AND version = ?", scheduleID, version).
-		First(&scheduleVersion).Error
-	if err != nil {
-		return nil, err
-	}
-	return &scheduleVersion, nil
-}
-
-func (r *VersionRepository) GetVersions(ctx context.Context, scheduleID uint) ([]models.ScheduleVersion, error) {
-	var versions []models.ScheduleVersion
-	err := r.db.WithContext(ctx).
-		Where("schedule_id = ?", scheduleID).
-		Order("version desc").
-		Find(&versions).Error
-	return versions, err
-}
-
+// GetLatestVersion получает последнюю версию расписания
 func (r *VersionRepository) GetLatestVersion(ctx context.Context, scheduleID uint) (*models.ScheduleVersion, error) {
 	var version models.ScheduleVersion
 	err := r.db.WithContext(ctx).
 		Where("schedule_id = ?", scheduleID).
-		Order("version desc").
+		Order("version DESC").
 		First(&version).Error
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get latest version: %w", err)
 	}
 	return &version, nil
+}
+
+// GetVersionsByScheduleID получает все версии расписания
+func (r *VersionRepository) GetVersionsByScheduleID(ctx context.Context, scheduleID uint) ([]models.ScheduleVersion, error) {
+	var versions []models.ScheduleVersion
+	err := r.db.WithContext(ctx).
+		Where("schedule_id = ?", scheduleID).
+		Order("version DESC").
+		Find(&versions).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to get versions: %w", err)
+	}
+	return versions, nil
 }

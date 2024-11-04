@@ -2,11 +2,10 @@
 package db
 
 import (
-	"fmt"
-	"log"
-
 	"cor-events-scheduler/internal/config"
 	"cor-events-scheduler/internal/domain/models"
+	"fmt"
+	"log"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -29,15 +28,11 @@ func NewDatabase(cfg *config.Config) (*gorm.DB, error) {
 		return nil, fmt.Errorf("failed to connect to database: %w", err)
 	}
 
+	// Обновленная миграция только для необходимых моделей
 	if err := db.AutoMigrate(
-		&models.Venue{},
-		&models.Event{},
 		&models.Schedule{},
 		&models.Block{},
-		&models.Equipment{},
 		&models.BlockItem{},
-		&models.Participant{},
-		&models.RiskFactor{},
 		&models.ScheduleVersion{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)

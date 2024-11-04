@@ -1,4 +1,5 @@
 // internal/config/config.go
+
 package config
 
 import (
@@ -8,7 +9,6 @@ import (
 type Config struct {
 	Server   ServerConfig
 	Database DatabaseConfig
-	Analysis AnalysisConfig
 }
 
 type ServerConfig struct {
@@ -24,15 +24,6 @@ type DatabaseConfig struct {
 	DBName   string
 }
 
-type AnalysisConfig struct {
-	MinTechBreakDuration  int     `mapstructure:"MIN_TECH_BREAK_DURATION"`
-	EquipmentComplexity   float64 `mapstructure:"EQUIPMENT_COMPLEXITY_FACTOR"`
-	MultidayBuffer        int     `mapstructure:"MULTIDAY_BUFFER_TIME"`
-	WeatherRiskMultiplier float64 `mapstructure:"WEATHER_RISK_MULTIPLIER"`
-	HumanFactorMultiplier float64 `mapstructure:"HUMAN_FACTOR_MULTIPLIER"`
-	EquipmentRiskBase     float64 `mapstructure:"EQUIPMENT_RISK_BASE"`
-}
-
 func Load() (*Config, error) {
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("APP")
@@ -45,12 +36,6 @@ func Load() (*Config, error) {
 	viper.SetDefault("DB_USER", "postgres")
 	viper.SetDefault("DB_PASSWORD", "your_secure_password")
 	viper.SetDefault("DB_NAME", "mew")
-	viper.SetDefault("MIN_TECH_BREAK_DURATION", 1)
-	viper.SetDefault("EQUIPMENT_COMPLEXITY_FACTOR", 1.0)
-	viper.SetDefault("MULTIDAY_BUFFER_TIME", 60)
-	viper.SetDefault("WEATHER_RISK_MULTIPLIER", 1.2)
-	viper.SetDefault("HUMAN_FACTOR_MULTIPLIER", 1.3)
-	viper.SetDefault("EQUIPMENT_RISK_BASE", 0.05)
 
 	config := &Config{
 		Server: ServerConfig{
@@ -63,14 +48,6 @@ func Load() (*Config, error) {
 			User:     viper.GetString("DB_USER"),
 			Password: viper.GetString("DB_PASSWORD"),
 			DBName:   viper.GetString("DB_NAME"),
-		},
-		Analysis: AnalysisConfig{
-			MinTechBreakDuration:  viper.GetInt("MIN_TECH_BREAK_DURATION"),
-			EquipmentComplexity:   viper.GetFloat64("EQUIPMENT_COMPLEXITY_FACTOR"),
-			MultidayBuffer:        viper.GetInt("MULTIDAY_BUFFER_TIME"),
-			WeatherRiskMultiplier: viper.GetFloat64("WEATHER_RISK_MULTIPLIER"),
-			HumanFactorMultiplier: viper.GetFloat64("HUMAN_FACTOR_MULTIPLIER"),
-			EquipmentRiskBase:     viper.GetFloat64("EQUIPMENT_RISK_BASE"),
 		},
 	}
 

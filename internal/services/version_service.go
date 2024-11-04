@@ -84,7 +84,7 @@ func (s *VersionService) CreateNewVersion(ctx context.Context, schedule *models.
 }
 
 func (s *VersionService) GetVersionHistory(ctx context.Context, scheduleID uint) ([]models.VersionMetadata, error) {
-	versions, err := s.versionRepo.GetVersions(ctx, scheduleID)
+	versions, err := s.versionRepo.GetVersionsByScheduleID(ctx, scheduleID) // Было GetVersions
 	if err != nil {
 		return nil, fmt.Errorf("failed to get versions: %w", err)
 	}
@@ -102,19 +102,29 @@ func (s *VersionService) GetVersionHistory(ctx context.Context, scheduleID uint)
 }
 
 func (s *VersionService) RestoreVersion(ctx context.Context, scheduleID uint, version int) error {
-	// Получаем указанную версию
-	scheduleVersion, err := s.versionRepo.GetVersion(ctx, scheduleID, version)
+	versions, err := s.versionRepo.GetVersionsByScheduleID(ctx, scheduleID) // Было GetVersion
 	if err != nil {
 		return fmt.Errorf("failed to get version: %w", err)
 	}
 
-	// Восстанавливаем расписание из этой версии
+	// Найдем нужную версию
+	var scheduleVersion *models.ScheduleVersion
+	for i := range versions {
+		if versions[i].Version == version {
+			scheduleVersion = &versions[i]
+			break
+		}
+	}
+
+	if scheduleVersion == nil {
+		return fmt.Errorf("version %d not found", version)
+	}
+
 	var schedule models.Schedule
 	if err := json.Unmarshal(scheduleVersion.Data, &schedule); err != nil {
 		return fmt.Errorf("failed to unmarshal schedule data: %w", err)
 	}
 
-	// Обновляем текущее расписание
 	if err := s.scheduleRepo.Update(ctx, &schedule); err != nil {
 		return fmt.Errorf("failed to restore schedule: %w", err)
 	}
@@ -151,34 +161,17 @@ func (s *VersionService) generateChangelog(old, new *models.Schedule) (string, e
 }
 
 func (s *VersionService) GetVersion(ctx context.Context, scheduleID uint, version int) (*models.ScheduleVersion, error) {
-	scheduleVersion, err := s.versionRepo.GetVersion(ctx, scheduleID, version)
+	versions, err := s.versionRepo.GetVersionsByScheduleID(ctx, scheduleID) // Было GetVersion
 	if err != nil {
-		return nil, fmt.Errorf("failed to get version %d for schedule %d: %w", version, scheduleID, err)
+		return nil, fmt.Errorf("failed to get version: %w", err)
 	}
 
-	if scheduleVersion == nil {
-		return nil, fmt.Errorf("version %d not found for schedule %d", version, scheduleID)
+	// Найдем нужную версию
+	for i := range versions {
+		if versions[i].Version == version {
+			return &versions[i], nil
+		}
 	}
 
-	s.logger.Debug("Retrieved schedule version",
-		zap.Uint("schedule_id", scheduleID),
-		zap.Int("version", version),
-		zap.Time("created_at", scheduleVersion.CreatedAt),
-	)
-
-	return scheduleVersion, nil
-}
-
-func (s *VersionService) GetVersions(ctx context.Context, scheduleID uint) ([]models.ScheduleVersion, error) {
-	versions, err := s.versionRepo.GetVersions(ctx, scheduleID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get versions for schedule %d: %w", scheduleID, err)
-	}
-
-	s.logger.Debug("Retrieved schedule versions",
-		zap.Uint("schedule_id", scheduleID),
-		zap.Int("version_count", len(versions)),
-	)
-
-	return versions, nil
+	return nil, fmt.Errorf("version %d not found for schedule %d", version, scheduleID)
 }

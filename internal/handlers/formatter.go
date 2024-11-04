@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"errors"
 	"net/http"
 	"strconv"
 
@@ -10,18 +9,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 type FormatterHandler struct {
-	formatterService *services.FormatterService
-	logger           *zap.Logger
+	service *services.FormatterService
+	logger  *zap.Logger
 }
 
-func NewFormatterHandler(formatterService *services.FormatterService, logger *zap.Logger) *FormatterHandler {
+func NewFormatterHandler(service *services.FormatterService, logger *zap.Logger) *FormatterHandler {
 	return &FormatterHandler{
-		formatterService: formatterService,
-		logger:           logger,
+		service: service,
+		logger:  logger,
 	}
 }
 
@@ -31,131 +29,70 @@ func NewFormatterHandler(formatterService *services.FormatterService, logger *za
 // @Accept json
 // @Produce json
 // @Param id path int true "Schedule ID"
-// @Param format query string false "Output format (json or text)" Enums(json, text) default(json)
-// @Success 200 {object} models.PublicSchedule
-// @Success 200 {string} string "When format=text"
-// @Failure 400 {object} ErrorResponse
+// @Success 200 {object} services.PublicSchedule
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /schedules/{id}/public [get]
+// @Router /api/v1/schedules/{id}/public [get]
 func (h *FormatterHandler) GetPublicSchedule(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		h.logger.Error("Invalid schedule ID format", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Неверный формат ID расписания",
-			"details": err.Error(),
+		h.logger.Error("Invalid ID format", zap.Error(err))
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid ID format",
+			Details: err.Error(),
 		})
 		return
 	}
 
-	ctx := c.Request.Context()
-
-	// Проверяем формат вывода
-	format := c.DefaultQuery("format", "json")
-
-	if format == "text" {
-		text, err := h.formatterService.FormatPublicScheduleText(ctx, uint(id))
-		if err != nil {
-			statusCode := http.StatusInternalServerError
-			message := "Ошибка при форматировании расписания"
-
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				statusCode = http.StatusNotFound
-				message = "Расписание не найдено"
-			}
-
-			h.logger.Error("Failed to format public schedule",
-				zap.Error(err),
-				zap.Uint64("schedule_id", id),
-			)
-
-			c.JSON(statusCode, gin.H{
-				"error":   message,
-				"details": err.Error(),
-			})
-			return
-		}
-
-		c.Header("Content-Type", "text/plain; charset=utf-8")
-		c.String(http.StatusOK, text)
-		return
-	}
-
-	// JSON формат
-	publicSchedule, err := h.formatterService.FormatPublicSchedule(ctx, uint(id))
+	schedule, err := h.service.FormatPublicSchedule(c.Request.Context(), uint(id))
 	if err != nil {
-		statusCode := http.StatusInternalServerError
-		message := "Ошибка при форматировании расписания"
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			statusCode = http.StatusNotFound
-			message = "Расписание не найдено"
-		}
-
-		h.logger.Error("Failed to format public schedule",
-			zap.Error(err),
-			zap.Uint64("schedule_id", id),
-		)
-
-		c.JSON(statusCode, gin.H{
-			"error":   message,
-			"details": err.Error(),
+		h.logger.Error("Failed to format schedule", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "Failed to format schedule",
+			Details: err.Error(),
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, publicSchedule)
+	c.JSON(http.StatusOK, schedule)
 }
 
-// @Summary Get volunteer schedule
-// @Description Get a formatted version of a schedule for volunteers
+// @Summary Get text schedule
+// @Description Get a text representation of a schedule
 // @Tags schedules
 // @Accept json
-// @Produce json
+// @Produce text/plain
 // @Param id path int true "Schedule ID"
-// @Success 200 {object} models.VolunteerSchedule
-// @Failure 400 {object} ErrorResponse
+// @Success 200 {string} string
 // @Failure 404 {object} ErrorResponse
 // @Failure 500 {object} ErrorResponse
-// @Router /schedules/{id}/volunteer [get]
-func (h *FormatterHandler) GetVolunteerSchedule(c *gin.Context) {
+// @Router /api/v1/schedules/{id}/text [get]
+func (h *FormatterHandler) GetScheduleText(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		h.logger.Error("Invalid schedule ID format", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error":   "Неверный формат ID расписания",
-			"details": err.Error(),
+		h.logger.Error("Invalid ID format", zap.Error(err))
+		c.JSON(http.StatusBadRequest, ErrorResponse{
+			Error:   "Invalid ID format",
+			Details: err.Error(),
 		})
 		return
 	}
 
-	ctx := c.Request.Context()
-	volunteerSchedule, err := h.formatterService.FormatVolunteerSchedule(ctx, uint(id))
+	text, err := h.service.FormatScheduleText(c.Request.Context(), uint(id))
 	if err != nil {
-		statusCode := http.StatusInternalServerError
-		message := "Ошибка при форматировании расписания"
-
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			statusCode = http.StatusNotFound
-			message = "Расписание не найдено"
-		}
-
-		h.logger.Error("Failed to format volunteer schedule",
-			zap.Error(err),
-			zap.Uint64("schedule_id", id),
-		)
-
-		c.JSON(statusCode, gin.H{
-			"error":   message,
-			"details": err.Error(),
+		h.logger.Error("Failed to format schedule text", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, ErrorResponse{
+			Error:   "Failed to format schedule text",
+			Details: err.Error(),
 		})
 		return
 	}
 
-	c.JSON(http.StatusOK, volunteerSchedule)
+	c.Header("Content-Type", "text/plain; charset=utf-8")
+	c.String(http.StatusOK, text)
 }
 
+// Вспомогательные структуры
 type ErrorResponse struct {
 	Error   string `json:"error"`
 	Details string `json:"details,omitempty"`
@@ -163,23 +100,11 @@ type ErrorResponse struct {
 
 type ListSchedulesResponse struct {
 	Data []models.Schedule `json:"data"`
-	Meta struct {
-		Page     int `json:"page"`
-		PageSize int `json:"page_size"`
-		Total    int `json:"total"`
-	} `json:"meta"`
+	Meta PaginationMeta    `json:"meta"`
 }
 
-type AnalysisResponse struct {
-	RiskScore         float64                  `json:"risk_score"`
-	Recommendations   []string                 `json:"recommendations"`
-	Schedule          models.Schedule          `json:"schedule"`
-	TimeAnalysis      []map[string]interface{} `json:"time_analysis"`
-	OptimizedSchedule *models.Schedule         `json:"optimized_schedule,omitempty"`
-}
-
-type OptimizationResponse struct {
-	OriginalSchedule  models.Schedule        `json:"original_schedule"`
-	OptimizedSchedule models.Schedule        `json:"optimized_schedule"`
-	Improvements      map[string]interface{} `json:"improvements"`
+type PaginationMeta struct {
+	Page     int `json:"page"`
+	PageSize int `json:"page_size"`
+	Total    int `json:"total"`
 }

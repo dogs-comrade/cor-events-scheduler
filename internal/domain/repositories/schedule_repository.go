@@ -2,9 +2,9 @@ package repositories
 
 import (
 	"context"
-	"fmt"
-
 	"cor-events-scheduler/internal/domain/models"
+	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -17,241 +17,167 @@ func NewScheduleRepository(db *gorm.DB) *ScheduleRepository {
 	return &ScheduleRepository{db: db}
 }
 
-func (r *ScheduleRepository) CreateOrUpdateEquipment(ctx context.Context, equipment *models.Equipment) error {
-	var existing models.Equipment
-	result := r.db.WithContext(ctx).Where("name = ? AND type = ?", equipment.Name, equipment.Type).First(&existing)
+// Create создает новое расписание
+func (r *ScheduleRepository) Create(ctx context.Context, schedule *models.Schedule) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// 1. Создаем чистое расписание без связей
+		scheduleToCreate := &models.Schedule{
+			Name:      schedule.Name,
+			StartDate: schedule.StartDate,
+			EndDate:   schedule.EndDate,
+		}
 
-	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
-			if err := r.db.WithContext(ctx).Create(equipment).Error; err != nil {
-				return fmt.Errorf("failed to create equipment: %w", err)
+		if err := tx.Create(scheduleToCreate).Error; err != nil {
+			return fmt.Errorf("failed to create schedule: %w", err)
+		}
+
+		// Сохраняем блоки временно
+		originalBlocks := schedule.Blocks
+		schedule.ID = scheduleToCreate.ID
+
+		// 2. Создаем каждый блок отдельно
+		for i := range originalBlocks {
+			// Создаем новый блок без связей
+			blockToCreate := &models.Block{
+				ScheduleID:        schedule.ID,
+				Name:              originalBlocks[i].Name,
+				Type:              originalBlocks[i].Type,
+				StartTime:         originalBlocks[i].StartTime,
+				Duration:          originalBlocks[i].Duration,
+				TechBreakDuration: originalBlocks[i].TechBreakDuration,
+				Order:             i + 1,
 			}
-		} else {
-			return fmt.Errorf("failed to check existing equipment: %w", result.Error)
-		}
-	} else {
-		// Update the existing equipment with new details
-		existing.SetupTime = equipment.SetupTime
-		existing.ComplexityScore = equipment.ComplexityScore
-		if err := r.db.WithContext(ctx).Save(&existing).Error; err != nil {
-			return fmt.Errorf("failed to update equipment: %w", err)
-		}
-		// Set the ID of the input equipment to the existing equipment's ID
-		equipment.ID = existing.ID
-	}
-	return nil
-}
 
-func (r *ScheduleRepository) CreateWithTransaction(ctx context.Context, schedule *models.Schedule) error {
-	tx := r.db.WithContext(ctx).Begin()
-	if tx.Error != nil {
-		return fmt.Errorf("failed to start transaction: %w", tx.Error)
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	// Create equipment map to track processed equipment
-	equipmentMap := make(map[string]uint)
-
-	// Process all equipment first
-	for i := range schedule.Blocks {
-		// Process block equipment
-		if err := r.processBlockEquipment(tx, &schedule.Blocks[i], equipmentMap); err != nil {
-			tx.Rollback()
-			return err
-		}
-
-		// Process equipment for each item in the block
-		for j := range schedule.Blocks[i].Items {
-			if err := r.processItemEquipment(tx, &schedule.Blocks[i].Items[j], equipmentMap); err != nil {
-				tx.Rollback()
-				return err
+			if err := tx.Create(blockToCreate).Error; err != nil {
+				return fmt.Errorf("failed to create block: %w", err)
 			}
+
+			// Сохраняем элементы блока временно
+			originalItems := originalBlocks[i].Items
+
+			// 3. Создаем элементы для этого блока
+			for j := range originalItems {
+				itemToCreate := &models.BlockItem{
+					BlockID:     blockToCreate.ID,
+					Name:        originalItems[j].Name,
+					Type:        originalItems[j].Type,
+					Description: originalItems[j].Description,
+					Duration:    originalItems[j].Duration,
+					Order:       j + 1,
+				}
+
+				if err := tx.Create(itemToCreate).Error; err != nil {
+					return fmt.Errorf("failed to create block item: %w", err)
+				}
+
+				// Обновляем ID в оригинальном элементе
+				originalItems[j].ID = itemToCreate.ID
+				originalItems[j].BlockID = blockToCreate.ID
+			}
+
+			// Обновляем ID и элементы в оригинальном блоке
+			originalBlocks[i].ID = blockToCreate.ID
+			originalBlocks[i].Items = originalItems
 		}
-	}
 
-	// Create the schedule with all its associations
-	if err := tx.Create(schedule).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to create schedule: %w", err)
-	}
+		// Возвращаем блоки обратно в расписание
+		schedule.Blocks = originalBlocks
 
-	return tx.Commit().Error
-}
-
-func (r *ScheduleRepository) processBlockEquipment(tx *gorm.DB, block *models.Block, equipmentMap map[string]uint) error {
-	for j := range block.Equipment {
-		equipment := &block.Equipment[j]
-		if err := r.processEquipment(tx, equipment, equipmentMap); err != nil {
-			return fmt.Errorf("failed to process equipment for block: %w", err)
-		}
-	}
-	return nil
-}
-
-func (r *ScheduleRepository) processItemEquipment(tx *gorm.DB, item *models.BlockItem, equipmentMap map[string]uint) error {
-	for j := range item.Equipment {
-		equipment := &item.Equipment[j]
-		if err := r.processEquipment(tx, equipment, equipmentMap); err != nil {
-			return fmt.Errorf("failed to process equipment for item: %w", err)
-		}
-	}
-	return nil
-}
-
-func (r *ScheduleRepository) processEquipment(tx *gorm.DB, equipment *models.Equipment, equipmentMap map[string]uint) error {
-	key := fmt.Sprintf("%s-%s", equipment.Name, equipment.Type)
-
-	// Check if we've already processed this equipment
-	if id, exists := equipmentMap[key]; exists {
-		equipment.ID = id
 		return nil
-	}
-
-	// Find existing equipment
-	var existing models.Equipment
-	result := tx.Where("name = ? AND type = ?", equipment.Name, equipment.Type).First(&existing)
-
-	if result.Error == nil {
-		// Equipment exists, update it
-		existing.SetupTime = equipment.SetupTime
-		existing.ComplexityScore = equipment.ComplexityScore
-		if err := tx.Save(&existing).Error; err != nil {
-			return fmt.Errorf("failed to update equipment: %w", err)
-		}
-		equipment.ID = existing.ID
-	} else if result.Error == gorm.ErrRecordNotFound {
-		// Create new equipment without ID
-		equipment.ID = 0 // Reset ID to ensure auto-increment
-		if err := tx.Create(equipment).Error; err != nil {
-			return fmt.Errorf("failed to create equipment: %w", err)
-		}
-	} else {
-		return fmt.Errorf("failed to check existing equipment: %w", result.Error)
-	}
-
-	equipmentMap[key] = equipment.ID
-	return nil
+	})
 }
 
+// Update обновляет существующее расписание
 func (r *ScheduleRepository) Update(ctx context.Context, schedule *models.Schedule) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		// Fetch existing schedule with associations
+		// Получаем текущее расписание для сравнения
 		var existingSchedule models.Schedule
-		if err := tx.Preload("Blocks.Items.Participants").
-			Preload("Blocks.Items.Equipment").
-			Preload("Blocks.Equipment").
-			First(&existingSchedule, schedule.ID).Error; err != nil {
-			return fmt.Errorf("failed to find existing schedule: %w", err)
+		if err := tx.Preload("Blocks.Items").First(&existingSchedule, schedule.ID).Error; err != nil {
+			return fmt.Errorf("failed to get existing schedule: %w", err)
 		}
 
-		// Update schedule fields
-		if err := tx.Model(&existingSchedule).Updates(schedule).Error; err != nil {
+		// Обновляем основные поля расписания
+		if err := tx.Model(schedule).Updates(map[string]interface{}{
+			"start_date": schedule.StartDate,
+			"end_date":   schedule.EndDate,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
 			return fmt.Errorf("failed to update schedule: %w", err)
 		}
 
-		// Map existing blocks by ID
-		existingBlocksMap := make(map[uint]*models.Block)
+		// Создаем мапы существующих блоков и элементов
+		existingBlocks := make(map[uint]*models.Block)
+		existingItems := make(map[uint]*models.BlockItem)
+
 		for i := range existingSchedule.Blocks {
-			b := &existingSchedule.Blocks[i]
-			existingBlocksMap[b.ID] = b
+			block := &existingSchedule.Blocks[i]
+			existingBlocks[block.ID] = block
+			for j := range block.Items {
+				item := &block.Items[j]
+				existingItems[item.ID] = item
+			}
 		}
 
-		// Process updated blocks
+		// Обрабатываем блоки
 		for i := range schedule.Blocks {
 			block := &schedule.Blocks[i]
 			block.ScheduleID = schedule.ID
 
 			if block.ID == 0 {
-				// New block, create it
+				// Новый блок
 				if err := tx.Create(block).Error; err != nil {
-					return fmt.Errorf("failed to create block: %w", err)
+					return fmt.Errorf("failed to create new block: %w", err)
 				}
 			} else {
-				// Existing block, update it
-				if err := tx.Model(block).Updates(block).Error; err != nil {
+				// Обновляем существующий блок
+				if err := tx.Model(block).Updates(map[string]interface{}{
+					"name":       block.Name,
+					"start_time": block.StartTime,
+					"duration":   block.Duration,
+					"order":      block.Order,
+					"updated_at": time.Now(),
+				}).Error; err != nil {
 					return fmt.Errorf("failed to update block: %w", err)
 				}
+				delete(existingBlocks, block.ID)
 			}
 
-			// Update block equipment associations
-			if err := tx.Model(block).Association("Equipment").Replace(block.Equipment); err != nil {
-				return fmt.Errorf("failed to update block equipment: %w", err)
-			}
-
-			// Map existing items by ID
-			existingItemsMap := make(map[uint]*models.BlockItem)
-			if existingBlock, exists := existingBlocksMap[block.ID]; exists {
-				for j := range existingBlock.Items {
-					item := &existingBlock.Items[j]
-					existingItemsMap[item.ID] = item
-				}
-			}
-
-			// Process block items
+			// Обрабатываем элементы блока
 			for j := range block.Items {
 				item := &block.Items[j]
 				item.BlockID = block.ID
 
 				if item.ID == 0 {
-					// New item, create it
+					// Новый элемент
 					if err := tx.Create(item).Error; err != nil {
-						return fmt.Errorf("failed to create item: %w", err)
+						return fmt.Errorf("failed to create new block item: %w", err)
 					}
 				} else {
-					// Existing item, update it
-					if err := tx.Model(item).Updates(item).Error; err != nil {
-						return fmt.Errorf("failed to update item: %w", err)
+					// Обновляем существующий элемент
+					if err := tx.Model(item).Updates(map[string]interface{}{
+						"name":       item.Name,
+						"duration":   item.Duration,
+						"order":      item.Order,
+						"updated_at": time.Now(),
+					}).Error; err != nil {
+						return fmt.Errorf("failed to update block item: %w", err)
 					}
-				}
-
-				// Update item equipment associations
-				if err := tx.Model(item).Association("Equipment").Replace(item.Equipment); err != nil {
-					return fmt.Errorf("failed to update item equipment: %w", err)
-				}
-
-				// Update item participant associations
-				if err := tx.Model(item).Association("Participants").Replace(item.Participants); err != nil {
-					return fmt.Errorf("failed to update item participants: %w", err)
-				}
-			}
-
-			// Delete items not present in the updated block
-			for id, existingItem := range existingItemsMap {
-				if !containsItemID(block.Items, id) {
-					// Clear associations
-					if err := tx.Model(existingItem).Association("Equipment").Clear(); err != nil {
-						return fmt.Errorf("failed to clear item equipment: %w", err)
-					}
-					if err := tx.Model(existingItem).Association("Participants").Clear(); err != nil {
-						return fmt.Errorf("failed to clear item participants: %w", err)
-					}
-					// Delete item
-					if err := tx.Delete(&models.BlockItem{}, id).Error; err != nil {
-						return fmt.Errorf("failed to delete item: %w", err)
-					}
+					delete(existingItems, item.ID)
 				}
 			}
 		}
 
-		// Delete blocks not present in the updated schedule
-		for id, existingBlock := range existingBlocksMap {
-			if !containsBlockID(schedule.Blocks, id) {
-				// Delete associated items
-				if err := tx.Where("block_id = ?", id).Delete(&models.BlockItem{}).Error; err != nil {
-					return fmt.Errorf("failed to delete block items: %w", err)
-				}
-				// Clear block equipment associations
-				if err := tx.Model(existingBlock).Association("Equipment").Clear(); err != nil {
-					return fmt.Errorf("failed to clear block equipment: %w", err)
-				}
-				// Delete the block
-				if err := tx.Delete(&models.Block{}, id).Error; err != nil {
-					return fmt.Errorf("failed to delete block: %w", err)
-				}
+		// Удаляем оставшиеся элементы
+		for _, item := range existingItems {
+			if err := tx.Delete(item).Error; err != nil {
+				return fmt.Errorf("failed to delete block item: %w", err)
+			}
+		}
+
+		// Удаляем оставшиеся блоки
+		for _, block := range existingBlocks {
+			if err := tx.Delete(block).Error; err != nil {
+				return fmt.Errorf("failed to delete block: %w", err)
 			}
 		}
 
@@ -259,28 +185,7 @@ func (r *ScheduleRepository) Update(ctx context.Context, schedule *models.Schedu
 	})
 }
 
-func containsBlockID(blocks []models.Block, id uint) bool {
-	for _, block := range blocks {
-		if block.ID == id {
-			return true
-		}
-	}
-	return false
-}
-
-func containsItemID(items []models.BlockItem, id uint) bool {
-	for _, item := range items {
-		if item.ID == id {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *ScheduleRepository) Delete(ctx context.Context, id uint) error {
-	return r.db.WithContext(ctx).Delete(&models.Schedule{}, id).Error
-}
-
+// GetByID получает расписание по ID
 func (r *ScheduleRepository) GetByID(ctx context.Context, id uint) (*models.Schedule, error) {
 	var schedule models.Schedule
 	err := r.db.WithContext(ctx).
@@ -290,42 +195,106 @@ func (r *ScheduleRepository) GetByID(ctx context.Context, id uint) (*models.Sche
 		Preload("Blocks.Items", func(db *gorm.DB) *gorm.DB {
 			return db.Order("block_items.order ASC")
 		}).
-		Preload("Blocks.Equipment").
-		Preload("Blocks.Items.Equipment").
 		First(&schedule, id).Error
+
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to get schedule: %w", err)
 	}
 	return &schedule, nil
 }
 
-func (r *ScheduleRepository) List(ctx context.Context, offset, limit int, schedules *[]models.Schedule, total *int64) error {
-	return r.db.WithContext(ctx).
-		Model(&models.Schedule{}).
-		Count(total).
-		Offset(offset).
-		Limit(limit).
-		Preload("Blocks", func(db *gorm.DB) *gorm.DB {
-			return db.Order("blocks.order ASC")
-		}).
-		Preload("Blocks.Items", func(db *gorm.DB) *gorm.DB {
-			return db.Order("block_items.order ASC")
-		}).
-		Preload("Blocks.Equipment").
-		Preload("Blocks.Items.Equipment").
-		Find(schedules).Error
+// Delete удаляет расписание
+func (r *ScheduleRepository) Delete(ctx context.Context, id uint) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Получаем расписание со всеми связями
+		var schedule models.Schedule
+		if err := tx.Preload("Blocks.Items").First(&schedule, id).Error; err != nil {
+			return fmt.Errorf("failed to get schedule for deletion: %w", err)
+		}
+
+		// Удаляем все элементы блоков
+		for _, block := range schedule.Blocks {
+			if err := tx.Where("block_id = ?", block.ID).Delete(&models.BlockItem{}).Error; err != nil {
+				return fmt.Errorf("failed to delete block items: %w", err)
+			}
+		}
+
+		// Удаляем блоки
+		if err := tx.Where("schedule_id = ?", id).Delete(&models.Block{}).Error; err != nil {
+			return fmt.Errorf("failed to delete blocks: %w", err)
+		}
+
+		// Удаляем само расписание
+		if err := tx.Delete(&models.Schedule{}, id).Error; err != nil {
+			return fmt.Errorf("failed to delete schedule: %w", err)
+		}
+
+		return nil
+	})
 }
 
-func (r *ScheduleRepository) UpdateScheduleArrangement(ctx context.Context, schedule *models.Schedule) error {
-	tx := r.db.WithContext(ctx).Begin()
-	if tx.Error != nil {
-		return fmt.Errorf("failed to start transaction: %w", tx.Error)
+// List возвращает список расписаний с пагинацией
+func (r *ScheduleRepository) List(ctx context.Context, offset, limit int) ([]models.Schedule, int64, error) {
+	var schedules []models.Schedule
+	var total int64
+
+	err := r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Получаем общее количество
+		if err := tx.Model(&models.Schedule{}).Count(&total).Error; err != nil {
+			return fmt.Errorf("failed to count schedules: %w", err)
+		}
+
+		// Получаем расписания с блоками и элементами
+		if err := tx.Preload("Blocks", func(db *gorm.DB) *gorm.DB {
+			return db.Order("blocks.order ASC")
+		}).
+			Preload("Blocks.Items", func(db *gorm.DB) *gorm.DB {
+				return db.Order("block_items.order ASC")
+			}).
+			Offset(offset).
+			Limit(limit).
+			Find(&schedules).Error; err != nil {
+			return fmt.Errorf("failed to list schedules: %w", err)
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		return nil, 0, err
 	}
 
-	if err := tx.Save(schedule).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to update schedule arrangement: %w", err)
+	return schedules, total, nil
+}
+
+// ValidateScheduleTimes проверяет корректность временных интервалов
+func (r *ScheduleRepository) ValidateScheduleTimes(schedule *models.Schedule) error {
+	if schedule.StartDate.After(schedule.EndDate) {
+		return fmt.Errorf("start time must be before end time")
 	}
 
-	return tx.Commit().Error
+	currentTime := schedule.StartDate
+	for i, block := range schedule.Blocks {
+		if block.StartTime.Before(currentTime) {
+			return fmt.Errorf("block %d starts before previous block ends", i+1)
+		}
+
+		blockEndTime := block.StartTime.Add(time.Duration(block.Duration) * time.Minute)
+		if blockEndTime.After(schedule.EndDate) {
+			return fmt.Errorf("block %d ends after schedule end time", i+1)
+		}
+
+		totalItemsDuration := 0
+		for _, item := range block.Items {
+			totalItemsDuration += item.Duration
+		}
+
+		if totalItemsDuration > block.Duration {
+			return fmt.Errorf("total duration of items in block %d exceeds block duration", i+1)
+		}
+
+		currentTime = blockEndTime
+	}
+
+	return nil
 }
