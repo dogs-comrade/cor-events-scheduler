@@ -65,14 +65,16 @@ func (s *SchedulerService) processBlockTimes(schedule *models.Schedule) error {
 	for i := range schedule.Blocks {
 		block := &schedule.Blocks[i]
 
-		// Если время начала не указано, устанавливаем автоматически
-		if block.StartTime.IsZero() {
+		// При обновлении всегда устанавливаем время начала блока
+		if i == 0 {
+			// Первый блок начинается в начале расписания
 			block.StartTime = currentTime
 		} else {
-			// Проверяем, что указанное время не раньше текущего
-			if block.StartTime.Before(currentTime) {
-				return fmt.Errorf("block %d (%s) cannot start before previous block ends", i+1, block.Name)
-			}
+			// Последующие блоки начинаются после окончания предыдущего
+			prevBlock := schedule.Blocks[i-1]
+			block.StartTime = prevBlock.StartTime.Add(
+				time.Duration(prevBlock.Duration+prevBlock.TechBreakDuration) * time.Minute,
+			)
 		}
 
 		// Проверяем длительность блока
@@ -97,7 +99,7 @@ func (s *SchedulerService) processBlockTimes(schedule *models.Schedule) error {
 			}
 		}
 
-		// Вычисляем время следующего блока
+		// Обновляем время для следующего блока
 		currentTime = block.StartTime.Add(time.Duration(block.Duration+block.TechBreakDuration) * time.Minute)
 	}
 
@@ -145,13 +147,15 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.
 		return fmt.Errorf("invalid schedule data: %w", err)
 	}
 
-	// Валидация временных интервалов
-	if err := s.scheduleRepo.ValidateScheduleTimes(schedule); err != nil {
-		return fmt.Errorf("invalid schedule times: %w", err)
+	// Обработка времен блоков
+	if err := s.processBlockTimes(schedule); err != nil {
+		return fmt.Errorf("failed to process block times: %w", err)
 	}
 
-	// Сортируем и устанавливаем времена для блоков
-	s.arrangeBlockTimes(schedule)
+	// Валидация временных интервалов
+	if err := s.validateScheduleTimes(schedule); err != nil {
+		return fmt.Errorf("invalid schedule times: %w", err)
+	}
 
 	// Создаем новую версию перед обновлением
 	if err := s.createVersion(ctx, currentSchedule); err != nil {

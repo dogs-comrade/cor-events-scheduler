@@ -14,8 +14,8 @@ type Schedule struct {
 	StartDate time.Time      `json:"start_date" gorm:"not null"`
 	EndDate   time.Time      `json:"end_date" gorm:"not null"`
 	Blocks    []Block        `json:"blocks" gorm:"foreignKey:ScheduleID;constraint:OnDelete:CASCADE"`
-	CreatedAt time.Time      `json:"created_at"`
-	UpdatedAt time.Time      `json:"updated_at"`
+	CreatedAt time.Time      `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt time.Time      `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
@@ -29,8 +29,8 @@ type Block struct {
 	TechBreakDuration int            `json:"tech_break_duration"`
 	Items             []BlockItem    `json:"items" gorm:"foreignKey:BlockID;constraint:OnDelete:CASCADE"`
 	Order             int            `json:"order" gorm:"not null"`
-	CreatedAt         time.Time      `json:"created_at"`
-	UpdatedAt         time.Time      `json:"updated_at"`
+	CreatedAt         time.Time      `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt         time.Time      `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	DeletedAt         gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
@@ -42,8 +42,8 @@ type BlockItem struct {
 	Description string         `json:"description"`
 	Duration    int            `json:"duration" gorm:"not null"`
 	Order       int            `json:"order" gorm:"not null"`
-	CreatedAt   time.Time      `json:"created_at"`
-	UpdatedAt   time.Time      `json:"updated_at"`
+	CreatedAt   time.Time      `json:"created_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
+	UpdatedAt   time.Time      `json:"updated_at" gorm:"not null;default:CURRENT_TIMESTAMP"`
 	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
 }
 

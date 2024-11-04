@@ -20,11 +20,15 @@ func NewScheduleRepository(db *gorm.DB) *ScheduleRepository {
 // Create создает новое расписание
 func (r *ScheduleRepository) Create(ctx context.Context, schedule *models.Schedule) error {
 	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		now := time.Now()
+
 		// 1. Создаем чистое расписание без связей
 		scheduleToCreate := &models.Schedule{
 			Name:      schedule.Name,
 			StartDate: schedule.StartDate,
 			EndDate:   schedule.EndDate,
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 
 		if err := tx.Create(scheduleToCreate).Error; err != nil {
@@ -34,6 +38,8 @@ func (r *ScheduleRepository) Create(ctx context.Context, schedule *models.Schedu
 		// Сохраняем блоки временно
 		originalBlocks := schedule.Blocks
 		schedule.ID = scheduleToCreate.ID
+		schedule.CreatedAt = now
+		schedule.UpdatedAt = now
 
 		// 2. Создаем каждый блок отдельно
 		for i := range originalBlocks {
@@ -46,6 +52,8 @@ func (r *ScheduleRepository) Create(ctx context.Context, schedule *models.Schedu
 				Duration:          originalBlocks[i].Duration,
 				TechBreakDuration: originalBlocks[i].TechBreakDuration,
 				Order:             i + 1,
+				CreatedAt:         now,
+				UpdatedAt:         now,
 			}
 
 			if err := tx.Create(blockToCreate).Error; err != nil {
@@ -64,19 +72,26 @@ func (r *ScheduleRepository) Create(ctx context.Context, schedule *models.Schedu
 					Description: originalItems[j].Description,
 					Duration:    originalItems[j].Duration,
 					Order:       j + 1,
+					CreatedAt:   now,
+					UpdatedAt:   now,
 				}
 
 				if err := tx.Create(itemToCreate).Error; err != nil {
 					return fmt.Errorf("failed to create block item: %w", err)
 				}
 
-				// Обновляем ID в оригинальном элементе
+				// Обновляем ID и временные метки в оригинальном элементе
 				originalItems[j].ID = itemToCreate.ID
 				originalItems[j].BlockID = blockToCreate.ID
+				originalItems[j].CreatedAt = now
+				originalItems[j].UpdatedAt = now
 			}
 
-			// Обновляем ID и элементы в оригинальном блоке
+			// Обновляем ID, временные метки и элементы в оригинальном блоке
 			originalBlocks[i].ID = blockToCreate.ID
+			originalBlocks[i].ScheduleID = schedule.ID
+			originalBlocks[i].CreatedAt = now
+			originalBlocks[i].UpdatedAt = now
 			originalBlocks[i].Items = originalItems
 		}
 
