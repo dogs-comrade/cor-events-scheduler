@@ -27,27 +27,27 @@ spec:
         ports:
         - containerPort: 8282
         env:
-        - name: DB_HOST
+        - name: APP_DB_HOST
           valueFrom:
             configMapKeyRef:
               name: events-scheduler-config
-              key: db_host
-        - name: DB_PORT
+              key: APP_DB_HOST
+        - name: APP_DB_PORT
           valueFrom:
             configMapKeyRef:
               name: events-scheduler-config
-              key: db_port
-        - name: DB_NAME
+              key: APP_DB_PORT
+        - name: APP_DB_NAME
           valueFrom:
             configMapKeyRef:
               name: events-scheduler-config
-              key: db_name
-        - name: DB_USER
+              key: APP_DB_NAME
+        - name: APP_DB_USER
           valueFrom:
             secretKeyRef:
               name: events-scheduler-secrets
               key: db_user
-        - name: DB_PASSWORD
+        - name: APP_DB_PASSWORD
           valueFrom:
             secretKeyRef:
               name: events-scheduler-secrets

@@ -3,6 +3,6 @@ kind: ConfigMap
 metadata:
   name: events-scheduler-config
 data:
-  db_host: "192.168.0.6"
-  db_port: "5432"
-  db_name: "scheduler"
+  APP_DB_HOST: "192.168.0.6"
+  APP_DB_PORT: "5432"
+  APP_DB_NAME: "scheduler"
