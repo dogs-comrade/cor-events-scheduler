@@ -2,8 +2,6 @@
 package config
 
 import (
-	"fmt"
-
 	"github.com/spf13/viper"
 )
 
@@ -39,35 +37,20 @@ func Load() (*Config, error) {
 	viper.AutomaticEnv()
 	viper.SetEnvPrefix("APP")
 
-	// Server defaults
+	// Значения по умолчанию
 	viper.SetDefault("SERVER_ADDRESS", "localhost")
 	viper.SetDefault("SERVER_PORT", "8282")
-
-	// Database defaults
 	viper.SetDefault("DB_HOST", "localhost")
 	viper.SetDefault("DB_PORT", "5432")
 	viper.SetDefault("DB_USER", "postgres")
 	viper.SetDefault("DB_PASSWORD", "your_secure_password")
 	viper.SetDefault("DB_NAME", "mew")
-
-	// Analysis defaults
 	viper.SetDefault("MIN_TECH_BREAK_DURATION", 1)
 	viper.SetDefault("EQUIPMENT_COMPLEXITY_FACTOR", 1.0)
 	viper.SetDefault("MULTIDAY_BUFFER_TIME", 60)
 	viper.SetDefault("WEATHER_RISK_MULTIPLIER", 1.2)
 	viper.SetDefault("HUMAN_FACTOR_MULTIPLIER", 1.3)
 	viper.SetDefault("EQUIPMENT_RISK_BASE", 0.05)
-
-	viper.SetConfigName("config")
-	viper.SetConfigType("yaml")
-	viper.AddConfigPath(".")
-	viper.AddConfigPath("./config")
-	viper.AddConfigPath("../config")
-	viper.AddConfigPath("../../config")
-
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("Warning: Config file not found, using environment variables and defaults: %v\n", err)
-	}
 
 	config := &Config{
 		Server: ServerConfig{
