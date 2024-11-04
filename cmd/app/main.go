@@ -40,29 +40,24 @@ import (
 // @license.name Apache 2.0
 // @license.url http://www.apache.org/licenses/LICENSE-2.0.html
 
-// @host localhost:8282
+// @host scheduler.xilonen.ru
 // @BasePath /api/v1
 func main() {
-	// Initialize logger
 	logger := utils.InitLogger()
 	defer logger.Sync()
 
-	// Initialize metrics
 	metrics.InitMetrics()
 
-	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
 		logger.Fatal("Failed to load config", zap.Error(err))
 	}
 
-	// Initialize database
 	database, err := db.NewDatabase(cfg)
 	if err != nil {
 		logger.Fatal("Failed to initialize database", zap.Error(err))
 	}
 
-	// Initialize swagger docs
 	docs.SwaggerInfo.Title = "Event Scheduler API"
 	docs.SwaggerInfo.Description = "Service for managing event schedules with risk analysis and optimization"
 	docs.SwaggerInfo.Version = "1.0"
@@ -70,12 +65,10 @@ func main() {
 	docs.SwaggerInfo.BasePath = "/api/v1"
 	docs.SwaggerInfo.Schemes = []string{"http", "https"}
 
-	// Initialize repositories
 	scheduleRepo := repositories.NewScheduleRepository(database)
 	eventRepo := repositories.NewEventRepository(database)
 	versionRepo := repositories.NewVersionRepository(database)
 
-	// Initialize services
 	analysisService := services.NewAnalysisService(cfg)
 	versionService := services.NewVersionService(versionRepo, scheduleRepo, logger)
 	venueService := services.NewVenueService(database, logger)
@@ -85,14 +78,12 @@ func main() {
 		scheduleRepo,
 		eventRepo,
 		analysisService,
-		versionService, // добавляем сервис версионирования
+		versionService,
 		logger,
 	)
 
-	// Initialize router with Swagger docs
 	router := setupRouter(schedulerService, versionService, logger, venueService, eventService)
 
-	// Программный способ задания информации о API
 	docs.SwaggerInfo.Title = "Event Scheduler API"
 	docs.SwaggerInfo.Description = "Service for managing event schedules with risk analysis and optimization"
 	docs.SwaggerInfo.Version = "1.0"
