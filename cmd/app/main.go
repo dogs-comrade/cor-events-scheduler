@@ -73,18 +73,24 @@ func main() {
 	// Initialize repositories
 	scheduleRepo := repositories.NewScheduleRepository(database)
 	eventRepo := repositories.NewEventRepository(database)
+	versionRepo := repositories.NewVersionRepository(database)
 
 	// Initialize services
 	analysisService := services.NewAnalysisService(cfg)
+	versionService := services.NewVersionService(versionRepo, scheduleRepo, logger)
+	venueService := services.NewVenueService(database, logger)
+	eventService := services.NewEventService(database, logger)
+
 	schedulerService := services.NewSchedulerService(
 		scheduleRepo,
 		eventRepo,
 		analysisService,
+		versionService, // добавляем сервис версионирования
 		logger,
 	)
 
 	// Initialize router with Swagger docs
-	router := setupRouter(schedulerService, logger)
+	router := setupRouter(schedulerService, versionService, logger, venueService, eventService)
 
 	// Программный способ задания информации о API
 	docs.SwaggerInfo.Title = "Event Scheduler API"
@@ -135,7 +141,13 @@ func main() {
 	logger.Info("Server exited properly")
 }
 
-func setupRouter(schedulerService *services.SchedulerService, logger *zap.Logger) *gin.Engine {
+func setupRouter(
+	schedulerService *services.SchedulerService,
+	versionService *services.VersionService,
+	logger *zap.Logger,
+	venueService *services.VenueService,
+	eventService *services.EventService,
+) *gin.Engine {
 	router := gin.New()
 
 	router.Use(gin.Recovery())
@@ -146,14 +158,26 @@ func setupRouter(schedulerService *services.SchedulerService, logger *zap.Logger
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 	router.GET("/health", handlers.HealthCheck)
 
-	formatterService := services.NewFormatterService(schedulerService)
-	formatterHandler := handlers.NewFormatterHandler(formatterService, logger)
+	scheduleRepo := schedulerService.GetScheduleRepository()
 
+	formatterService := services.NewFormatterService(schedulerService, scheduleRepo, logger)
+	formatterHandler := handlers.NewFormatterHandler(formatterService, logger)
+	versionHandler := handlers.NewVersionHandler(versionService, logger)
+	venueHandler := handlers.NewVenueHandler(venueService, logger)
+	eventHandler := handlers.NewEventHandler(eventService, logger)
 	url := ginSwagger.URL("http://localhost:8282/swagger/doc.json")
 	router.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler, url))
 
 	v1 := router.Group("/api/v1")
 	{
+		venues := v1.Group("/venues")
+		{
+			venues.POST("/", venueHandler.CreateVenue)
+		}
+		events := v1.Group("/events")
+		{
+			events.POST("/", eventHandler.CreateEvent)
+		}
 		schedules := v1.Group("/schedules")
 		{
 			handler := handlers.NewSchedulerHandler(schedulerService, logger)
@@ -166,8 +190,9 @@ func setupRouter(schedulerService *services.SchedulerService, logger *zap.Logger
 			schedules.POST("/optimize", handler.OptimizeSchedule)
 			schedules.GET("/:id/public", formatterHandler.GetPublicSchedule)
 			schedules.GET("/:id/volunteer", formatterHandler.GetVolunteerSchedule)
+			schedules.GET("/:id/versions", versionHandler.GetVersionHistory)
+			schedules.POST("/:id/versions/:version/restore", versionHandler.RestoreVersion)
 		}
 	}
-
 	return router
 }

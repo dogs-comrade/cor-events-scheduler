@@ -2,34 +2,39 @@ package services
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"time"
 
 	"cor-events-scheduler/internal/domain/models"
+	"cor-events-scheduler/internal/domain/repositories"
 
-	"gorm.io/gorm"
+	"go.uber.org/zap"
 )
 
 type FormatterService struct {
 	scheduleService *SchedulerService
+	scheduleRepo    *repositories.ScheduleRepository
+	logger          *zap.Logger
 }
 
-func NewFormatterService(scheduleService *SchedulerService) *FormatterService {
+func NewFormatterService(
+	schedulerService *SchedulerService,
+	scheduleRepo *repositories.ScheduleRepository,
+	logger *zap.Logger,
+) *FormatterService {
 	return &FormatterService{
-		scheduleService: scheduleService,
+		scheduleService: schedulerService,
+		scheduleRepo:    scheduleRepo,
+		logger:          logger,
 	}
 }
 
 func (s *FormatterService) FormatPublicSchedule(ctx context.Context, scheduleID uint) (*models.PublicSchedule, error) {
-	schedule, err := s.scheduleService.GetSchedule(ctx, scheduleID)
+	schedule, err := s.scheduleRepo.GetByID(ctx, scheduleID)
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, fmt.Errorf("расписание с ID %d не найдено", scheduleID)
-		}
-		return nil, fmt.Errorf("ошибка при получении расписания: %w", err)
+		return nil, fmt.Errorf("failed to get schedule: %w", err)
 	}
 
 	publicSchedule := &models.PublicSchedule{
@@ -44,42 +49,62 @@ func (s *FormatterService) FormatPublicSchedule(ctx context.Context, scheduleID 
 		Title: "Начало мероприятия",
 	})
 
-	// Обрабатываем каждый блок расписания
+	// Сортируем блоки по порядку
+	sort.Slice(schedule.Blocks, func(i, j int) bool {
+		return schedule.Blocks[i].Order < schedule.Blocks[j].Order
+	})
+
 	currentTime := schedule.StartDate
 	for _, block := range schedule.Blocks {
-		// Создаем основной блок
-		scheduleItem := models.PublicScheduleItem{
+		// Создаем элемент расписания для блока
+		blockItem := models.PublicScheduleItem{
 			Time:        currentTime,
 			Title:       block.Name,
-			Description: block.Type,
+			Description: fmt.Sprintf("%s - %s", block.Type, block.Location),
 			SubItems:    make([]models.PublicScheduleSubItem, 0),
 		}
 
-		// Добавляем подэлементы блока
-		subItemTime := currentTime
+		// Сортируем элементы блока
+		sort.Slice(block.Items, func(i, j int) bool {
+			return block.Items[i].Order < block.Items[j].Order
+		})
+
+		// Добавляем подэлементы
+		itemTime := currentTime
 		for _, item := range block.Items {
 			subItem := models.PublicScheduleSubItem{
-				Time:        subItemTime,
+				Time:        itemTime,
 				Title:       item.Name,
 				Description: item.Description,
 			}
-			scheduleItem.SubItems = append(scheduleItem.SubItems, subItem)
-			subItemTime = subItemTime.Add(time.Duration(item.Duration) * time.Minute)
+
+			if len(item.Participants) > 0 {
+				var participants []string
+				for _, p := range item.Participants {
+					participants = append(participants, fmt.Sprintf("%s (%s)", p.Name, p.Role))
+				}
+				subItem.Description = fmt.Sprintf("%s - %s", subItem.Description, strings.Join(participants, ", "))
+			}
+
+			blockItem.SubItems = append(blockItem.SubItems, subItem)
+			itemTime = itemTime.Add(time.Duration(item.Duration) * time.Minute)
 		}
 
-		publicSchedule.Items = append(publicSchedule.Items, scheduleItem)
+		publicSchedule.Items = append(publicSchedule.Items, blockItem)
 
 		// Обновляем время для следующего блока
 		currentTime = currentTime.Add(time.Duration(block.Duration) * time.Minute)
+
+		// Добавляем технический перерыв, если он есть
 		if block.TechBreakDuration > 0 {
+			publicSchedule.Items = append(publicSchedule.Items, models.PublicScheduleItem{
+				Time:        currentTime,
+				Title:       fmt.Sprintf("Технический перерыв (%d мин)", block.TechBreakDuration),
+				Description: fmt.Sprintf("После %s", block.Name),
+			})
 			currentTime = currentTime.Add(time.Duration(block.TechBreakDuration) * time.Minute)
 		}
 	}
-
-	// Сортируем все элементы по времени
-	sort.Slice(publicSchedule.Items, func(i, j int) bool {
-		return publicSchedule.Items[i].Time.Before(publicSchedule.Items[j].Time)
-	})
 
 	return publicSchedule, nil
 }
@@ -99,20 +124,20 @@ func (s *FormatterService) FormatPublicScheduleText(ctx context.Context, schedul
 	result.WriteString(fmt.Sprintf("Расписание: %s\n", schedule.EventName))
 	result.WriteString(fmt.Sprintf("Дата: %s\n\n", schedule.Date.Format("02.01.2006")))
 
-	// Используем локальное время для форматирования
 	location, _ := time.LoadLocation("Europe/Moscow")
 
 	for _, item := range schedule.Items {
-		// Конвертируем время в локальное
 		localTime := item.Time.In(location)
 		result.WriteString(fmt.Sprintf("%s %s\n", localTime.Format("15:04"), item.Title))
+		if item.Description != "" {
+			result.WriteString(fmt.Sprintf("    %s\n", item.Description))
+		}
 
-		// Подэлементы
 		for _, subItem := range item.SubItems {
 			localSubTime := subItem.Time.In(location)
 			result.WriteString(fmt.Sprintf("* %s %s\n", localSubTime.Format("15:04"), subItem.Title))
 			if subItem.Description != "" {
-				result.WriteString(fmt.Sprintf("  %s\n", subItem.Description))
+				result.WriteString(fmt.Sprintf("    %s\n", subItem.Description))
 			}
 		}
 		result.WriteString("\n")

@@ -129,17 +129,42 @@ func NewDatabase(cfg *config.Config) (*gorm.DB, error) {
         CREATE INDEX IF NOT EXISTS idx_equipment_type ON equipment(type);
         CREATE INDEX IF NOT EXISTS idx_blocks_type ON blocks(type);
         CREATE INDEX IF NOT EXISTS idx_block_items_type ON block_items(type);
+
+        -- Блоки
+        CREATE TABLE IF NOT EXISTS blocks (
+            id BIGSERIAL PRIMARY KEY,
+            schedule_id BIGINT REFERENCES schedules(id),
+            name TEXT NOT NULL,
+            type TEXT,
+            start_time TIMESTAMPTZ,
+            duration INTEGER,
+            tech_break_duration INTEGER,
+            complexity DECIMAL,
+            max_participants INTEGER,
+            required_staff INTEGER,
+            location TEXT,
+            dependencies INTEGER[],
+            risk_factors JSONB,
+            "order" INTEGER,
+            created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+            deleted_at TIMESTAMPTZ
+        );
     `).Error; err != nil {
 		return nil, fmt.Errorf("failed to create tables: %w", err)
 	}
 
 	// Запускаем GORM AutoMigrate для обновления структуры таблиц
 	if err := db.AutoMigrate(
-		&models.Equipment{},
-		&models.Participant{},
+		&models.Venue{},
+		&models.Event{},
 		&models.Schedule{},
 		&models.Block{},
+		&models.Equipment{},
 		&models.BlockItem{},
+		&models.Participant{},
+		&models.RiskFactor{},
+		&models.ScheduleVersion{},
 	); err != nil {
 		return nil, fmt.Errorf("failed to run migrations: %w", err)
 	}

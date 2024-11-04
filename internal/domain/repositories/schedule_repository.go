@@ -138,22 +138,143 @@ func (r *ScheduleRepository) processEquipment(tx *gorm.DB, equipment *models.Equ
 }
 
 func (r *ScheduleRepository) Update(ctx context.Context, schedule *models.Schedule) error {
-	tx := r.db.WithContext(ctx).Begin()
-	if tx.Error != nil {
-		return fmt.Errorf("failed to start transaction: %w", tx.Error)
-	}
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		// Fetch existing schedule with associations
+		var existingSchedule models.Schedule
+		if err := tx.Preload("Blocks.Items.Participants").
+			Preload("Blocks.Items.Equipment").
+			Preload("Blocks.Equipment").
+			First(&existingSchedule, schedule.ID).Error; err != nil {
+			return fmt.Errorf("failed to find existing schedule: %w", err)
+		}
 
-	if err := tx.Where("schedule_id = ?", schedule.ID).Delete(&models.Block{}).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to delete old blocks: %w", err)
-	}
+		// Update schedule fields
+		if err := tx.Model(&existingSchedule).Updates(schedule).Error; err != nil {
+			return fmt.Errorf("failed to update schedule: %w", err)
+		}
 
-	if err := tx.Save(schedule).Error; err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to update schedule: %w", err)
-	}
+		// Map existing blocks by ID
+		existingBlocksMap := make(map[uint]*models.Block)
+		for i := range existingSchedule.Blocks {
+			b := &existingSchedule.Blocks[i]
+			existingBlocksMap[b.ID] = b
+		}
 
-	return tx.Commit().Error
+		// Process updated blocks
+		for i := range schedule.Blocks {
+			block := &schedule.Blocks[i]
+			block.ScheduleID = schedule.ID
+
+			if block.ID == 0 {
+				// New block, create it
+				if err := tx.Create(block).Error; err != nil {
+					return fmt.Errorf("failed to create block: %w", err)
+				}
+			} else {
+				// Existing block, update it
+				if err := tx.Model(block).Updates(block).Error; err != nil {
+					return fmt.Errorf("failed to update block: %w", err)
+				}
+			}
+
+			// Update block equipment associations
+			if err := tx.Model(block).Association("Equipment").Replace(block.Equipment); err != nil {
+				return fmt.Errorf("failed to update block equipment: %w", err)
+			}
+
+			// Map existing items by ID
+			existingItemsMap := make(map[uint]*models.BlockItem)
+			if existingBlock, exists := existingBlocksMap[block.ID]; exists {
+				for j := range existingBlock.Items {
+					item := &existingBlock.Items[j]
+					existingItemsMap[item.ID] = item
+				}
+			}
+
+			// Process block items
+			for j := range block.Items {
+				item := &block.Items[j]
+				item.BlockID = block.ID
+
+				if item.ID == 0 {
+					// New item, create it
+					if err := tx.Create(item).Error; err != nil {
+						return fmt.Errorf("failed to create item: %w", err)
+					}
+				} else {
+					// Existing item, update it
+					if err := tx.Model(item).Updates(item).Error; err != nil {
+						return fmt.Errorf("failed to update item: %w", err)
+					}
+				}
+
+				// Update item equipment associations
+				if err := tx.Model(item).Association("Equipment").Replace(item.Equipment); err != nil {
+					return fmt.Errorf("failed to update item equipment: %w", err)
+				}
+
+				// Update item participant associations
+				if err := tx.Model(item).Association("Participants").Replace(item.Participants); err != nil {
+					return fmt.Errorf("failed to update item participants: %w", err)
+				}
+			}
+
+			// Delete items not present in the updated block
+			for id, existingItem := range existingItemsMap {
+				if !containsItemID(block.Items, id) {
+					// Clear associations
+					if err := tx.Model(existingItem).Association("Equipment").Clear(); err != nil {
+						return fmt.Errorf("failed to clear item equipment: %w", err)
+					}
+					if err := tx.Model(existingItem).Association("Participants").Clear(); err != nil {
+						return fmt.Errorf("failed to clear item participants: %w", err)
+					}
+					// Delete item
+					if err := tx.Delete(&models.BlockItem{}, id).Error; err != nil {
+						return fmt.Errorf("failed to delete item: %w", err)
+					}
+				}
+			}
+		}
+
+		// Delete blocks not present in the updated schedule
+		for id, existingBlock := range existingBlocksMap {
+			if !containsBlockID(schedule.Blocks, id) {
+				// Delete associated items
+				if err := tx.Where("block_id = ?", id).Delete(&models.BlockItem{}).Error; err != nil {
+					return fmt.Errorf("failed to delete block items: %w", err)
+				}
+				// Clear block equipment associations
+				if err := tx.Model(existingBlock).Association("Equipment").Clear(); err != nil {
+					return fmt.Errorf("failed to clear block equipment: %w", err)
+				}
+				// Delete the block
+				if err := tx.Delete(&models.Block{}, id).Error; err != nil {
+					return fmt.Errorf("failed to delete block: %w", err)
+				}
+			}
+		}
+
+		return nil
+	})
+}
+
+func containsBlockID(blocks []models.Block, id uint) bool {
+	for _, block := range blocks {
+		if block.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func containsItemID(items []models.BlockItem, id uint) bool {
+	for _, item := range items {
+		if item.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *ScheduleRepository) Delete(ctx context.Context, id uint) error {

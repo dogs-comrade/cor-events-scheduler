@@ -67,7 +67,7 @@ func (s *AnalysisService) CalculateScheduleRisk(schedule *models.Schedule) (floa
 
 		// Анализ зависимостей
 		for _, depID := range block.Dependencies {
-			if depRisk, exists := blockRisks[depID]; exists {
+			if depRisk, exists := blockRisks[uint(depID)]; exists {
 				risk *= (1 + depRisk/2) // Зависимые блоки увеличивают риск
 			}
 		}

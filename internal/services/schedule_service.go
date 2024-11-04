@@ -3,6 +3,7 @@ package services
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -19,18 +20,21 @@ type SchedulerService struct {
 	analysisService *AnalysisService
 	logger          *zap.Logger
 	metrics         *SchedulerMetrics
+	versionService  *VersionService
 }
 
 func NewSchedulerService(
 	scheduleRepo *repositories.ScheduleRepository,
 	eventRepo *repositories.EventRepository,
 	analysisService *AnalysisService,
+	versionService *VersionService,
 	logger *zap.Logger,
 ) *SchedulerService {
 	return &SchedulerService{
 		scheduleRepo:    scheduleRepo,
 		eventRepo:       eventRepo,
 		analysisService: analysisService,
+		versionService:  versionService,
 		logger:          logger,
 		metrics:         NewSchedulerMetrics(),
 	}
@@ -173,6 +177,13 @@ func (s *SchedulerService) CreateSchedule(ctx context.Context, schedule *models.
 		return fmt.Errorf("failed to create schedule: %w", err)
 	}
 
+	if err := s.versionService.CreateNewVersion(ctx, schedule, "system"); err != nil {
+		s.logger.Error("Failed to create initial version",
+			zap.Error(err),
+			zap.Uint("schedule_id", schedule.ID),
+		)
+	}
+
 	s.metrics.scheduleCreations.Inc()
 
 	s.logger.Info("Schedule created",
@@ -236,6 +247,34 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.
 		return fmt.Errorf("invalid schedule dates: %w", err)
 	}
 
+	// Создаем карту существующих блоков по их ID
+	existingBlocks := make(map[uint]*models.Block)
+	for i := range existingSchedule.Blocks {
+		block := &existingSchedule.Blocks[i]
+		existingBlocks[block.ID] = block
+	}
+
+	// Обновляем или добавляем блоки
+	var updatedBlocks []models.Block
+	for _, block := range schedule.Blocks {
+		if block.ID > 0 {
+			// Если блок существует, обновляем его данные
+			if existingBlock, ok := existingBlocks[block.ID]; ok {
+				// Сохраняем существующие связи и ID
+				block.ScheduleID = schedule.ID
+				block.Equipment = existingBlock.Equipment
+				block.Items = existingBlock.Items
+				delete(existingBlocks, block.ID) // Удаляем из карты, чтобы отследить удаленные блоки
+			}
+		} else {
+			// Для новых блоков устанавливаем ScheduleID
+			block.ScheduleID = schedule.ID
+		}
+		updatedBlocks = append(updatedBlocks, block)
+	}
+	schedule.Blocks = updatedBlocks
+
+	// Пересчитываем технические перерывы и время начала блоков
 	for i := 0; i < len(schedule.Blocks)-1; i++ {
 		currentBlock := &schedule.Blocks[i]
 		nextBlock := &schedule.Blocks[i+1]
@@ -246,6 +285,7 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.
 		s.metrics.techBreakDurations.Observe(float64(techBreak))
 	}
 
+	// Вычисляем риск и рекомендации
 	riskScore, recommendations := s.analysisService.CalculateScheduleRisk(schedule)
 	schedule.RiskScore = riskScore
 
@@ -263,6 +303,15 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.
 		}
 	}
 
+	// Создаем новую версию перед обновлением
+	if err := s.versionService.CreateNewVersion(ctx, existingSchedule, "system"); err != nil {
+		s.logger.Error("Failed to create version before update",
+			zap.Error(err),
+			zap.Uint("schedule_id", schedule.ID),
+		)
+	}
+
+	// Обновляем расписание в базе данных
 	if err := s.scheduleRepo.Update(ctx, schedule); err != nil {
 		return fmt.Errorf("failed to update schedule: %w", err)
 	}
@@ -274,8 +323,6 @@ func (s *SchedulerService) UpdateSchedule(ctx context.Context, schedule *models.
 		zap.String("name", schedule.Name),
 		zap.Float64("risk_score", riskScore),
 		zap.Strings("recommendations", recommendations),
-		zap.Time("start_date", schedule.StartDate),
-		zap.Time("end_date", schedule.EndDate),
 	)
 
 	return nil
@@ -290,6 +337,21 @@ func (s *SchedulerService) GetSchedule(ctx context.Context, id uint) (*models.Sc
 }
 
 func (s *SchedulerService) DeleteSchedule(ctx context.Context, id uint) error {
+	// Получаем расписание перед удалением для создания последней версии
+	schedule, err := s.scheduleRepo.GetByID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to get schedule for deletion: %w", err)
+	}
+
+	// Создаем финальную версию перед удалением
+	if err := s.versionService.CreateNewVersion(ctx, schedule, "system_deletion"); err != nil {
+		s.logger.Error("Failed to create final version before deletion",
+			zap.Error(err),
+			zap.Uint("schedule_id", id),
+		)
+		// Продолжаем удаление даже при ошибке версионирования
+	}
+
 	if err := s.scheduleRepo.Delete(ctx, id); err != nil {
 		return fmt.Errorf("failed to delete schedule: %w", err)
 	}
@@ -374,6 +436,14 @@ func (s *SchedulerService) ArrangeSchedule(ctx context.Context, scheduleID uint,
 		return fmt.Errorf("failed to save arranged schedule: %w", err)
 	}
 
+	// После успешного сохранения создаем новую версию
+	if err := s.versionService.CreateNewVersion(ctx, schedule, "system_arrangement"); err != nil {
+		s.logger.Error("Failed to create version after arrangement",
+			zap.Error(err),
+			zap.Uint("schedule_id", scheduleID),
+		)
+	}
+
 	s.logger.Info("Schedule arranged",
 		zap.Uint("schedule_id", scheduleID),
 		zap.Int("items_count", len(items)),
@@ -405,6 +475,20 @@ func (s *SchedulerService) validateScheduleUpdate(existing, new *models.Schedule
 	return nil
 }
 
+func (s *SchedulerService) GetScheduleVersion(ctx context.Context, scheduleID uint, version int) (*models.Schedule, error) {
+	scheduleVersion, err := s.versionService.GetVersion(ctx, scheduleID, version)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get schedule version: %w", err)
+	}
+
+	var schedule models.Schedule
+	if err := json.Unmarshal(scheduleVersion.Data, &schedule); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal schedule data: %w", err)
+	}
+
+	return &schedule, nil
+}
+
 func (s *SchedulerService) validateScheduleDates(schedule *models.Schedule) error {
 	event, err := s.eventRepo.GetByID(context.Background(), schedule.EventID)
 	if err != nil {
@@ -422,4 +506,8 @@ func (s *SchedulerService) validateScheduleDates(schedule *models.Schedule) erro
 
 func (s *SchedulerService) AnalysisService() *AnalysisService {
 	return s.analysisService
+}
+
+func (s *SchedulerService) GetScheduleRepository() *repositories.ScheduleRepository {
+	return s.scheduleRepo
 }

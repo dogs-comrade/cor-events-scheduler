@@ -17,7 +17,9 @@ func NewEventRepository(db *gorm.DB) *EventRepository {
 
 func (r *EventRepository) GetByID(ctx context.Context, id uint) (*models.Event, error) {
 	var event models.Event
-	err := r.db.WithContext(ctx).First(&event, id).Error
+	err := r.db.WithContext(ctx).
+		Preload("Venue").
+		First(&event, id).Error
 	if err != nil {
 		return nil, err
 	}
