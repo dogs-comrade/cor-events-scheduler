@@ -7,7 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_NAME: dogs-comrade/events-scheduler
+  IMAGE_NAME: dogs-comrade/cor-events-scheduler
   NAMESPACE: events-scheduler
 
 permissions:
